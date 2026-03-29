@@ -1,0 +1,274 @@
+:root {
+  --line-height: 28px; /* 这是你每一行列表的标准高度 */
+}
+
+hr {
+  margin: 16px 0;
+}
+
+.md-editor-body {
+  flex: 1;
+  overflow-y: auto;
+  line-height: 1.6;
+  user-select: none;
+  overflow: hidden;
+  height: 100%;
+}
+
+.md-editor-area {
+  /* 布局与盒模型 */
+  position: absolute; /* 添加：确保重叠 */
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box; /* 关键：确保 padding 不会撑破 width 100% */
+  padding: 20px;          /* 以前在父容器的 padding 移到这里 */
+  
+  /* 视觉欺骗关键属性 */
+  background: transparent;
+  color: transparent;
+  caret-color: #333;       /* 光标颜色，否则光标也看不见了 */
+  z-index: 2;              /* 必须比高亮层高 */
+  
+  border: none;
+  resize: none;
+  outline: none;
+  
+  font-family: '微软雅黑';
+  font-size: 14px;
+  line-height: 1.6;
+  tab-size: 4;
+  
+  overflow-y: auto; 
+  caret-color: black;
+}
+
+.md-preview-editor-area {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box; /* 关键 */
+  padding: 20px;          /* 必须与 textarea 一模一样 */
+  
+  background-color: #fff; /* 背景色在这里设置 */
+  color: #333;            /* 文字颜色在这里显示 */
+  z-index: 1;             /* 在下面 */
+  
+  pointer-events: none;   /* 鼠标穿透 */
+  
+  font-family: '微软雅黑';
+  font-size: 14px;
+  line-height: 1.6;
+  tab-size: 4;
+  
+  white-space: pre-wrap; 
+  word-wrap: break-word;
+  overflow: hidden;
+}
+
+.md-preview-area {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+  line-height: 1.6;
+}
+
+.md-line-block {
+  display: flex;
+  flex-wrap: nowrap;
+  padding: 4px;
+  tab-size: 4;
+  line-height: normal;
+}
+
+.md-origin-block {
+  display: flex;
+  tab-size: 4;
+  padding: 4px;
+}
+
+/* 树形列表样式 */
+.md-list {
+  list-style-type: disc; /* 使用浏览器默认圆点 */
+}
+
+.md-list-item {
+  line-height: 1.6;
+  list-style-position: outside; 
+  display: flex;
+}
+
+/* 列表项的一行 */
+.md-list-item-ordered {
+  display: flex; /* 🔥 关键：使用 Flex 布局 */
+  align-items: flex-start; /* 顶部对齐 (如果文字换行，数字还在第一行) */
+  margin-bottom: 4px;
+  line-height: 1.6;
+  color: #333;
+}
+
+/* 序号样式 (对应 Obsidian 的 list-number) */
+.md-list-number {
+  flex-shrink: 0; /* 防止数字被压缩 */
+  min-width: 2em; /* 给数字留点固定宽度，对齐更好看 */
+  color: #888; /* 数字颜色稍微淡一点 */
+  font-family: 'Maple Mono'; /* 用等宽字体，数字对齐更整齐 */
+}
+
+/* 内容区域 */
+.md-inline-content {
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: pre-wrap;     /* 保留用户空格 + 支持换行 */
+  overflow-wrap: anywhere;   /* 超长单词强制换行 */
+  word-break: break-word;
+}
+
+.md-indent {
+  display: inline-block;
+  height: 1.6em;
+  flex-shrink: 0;
+  width: 2em;
+}
+
+
+.md-spacing {
+  display: inline-block;
+  height: 1.6em;
+  flex-shrink: 0;
+  width: 0.5em;
+}
+
+.md-list-marker {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 1em;
+  flex-shrink: 0;
+  color: #888;
+}
+
+.md-bold {
+  font-weight: bold;
+}
+
+.md-link {
+  color: #267AE9;
+}
+
+.md-link:visited {
+  color: #267AE9;
+}
+
+.md-highlight {
+  background-color: rgba(165, 42, 42, 0.2)
+}
+
+.md-italic {
+  font-style: italic;
+}
+
+.md-code {
+  font-family: 'Maple Mono';
+  background-color: #f0f0f0;
+  color: #666;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.md-strike {
+  text-decoration: line-through;
+}
+
+.md-heading-1 {
+  font-size: 2em;
+  font-weight: bold;
+}
+
+.md-heading-2 {
+  font-size: 1.8em;
+  font-weight: bold;
+}
+
+.md-heading-3 {
+  font-size: 1.6em;
+  font-weight: bold;
+}
+
+.md-heading-4 {
+  font-size: 1.4em;
+  font-weight: bold;
+}
+
+.md-heading-5 {
+  font-size: 1.2em;
+  font-weight: bold;
+}
+
+.md-heading-6 {
+  font-size: 1em;
+  font-weight: bold;
+}
+
+
+.md-document {
+  padding: 60px;
+  user-select: text;
+}
+
+.active-line {
+  background-color: rgba(180, 213, 255, 0.4);
+  border-radius: 4px;
+  transition: background-color 0.5s ease;
+}
+
+.md-editing {
+  background-color: rgba(180, 213, 255, 0.4);
+  border-radius: 4px;
+}
+
+.md-renderer-area {
+  user-select: text;
+  outline: none;
+}
+
+.md-line-editor {
+  /* 1. 禁止用户手动调整宽高 */
+  resize: none;
+
+  /* 2. 宽度占满 100% */
+  width: 100%;
+  display: block; /* 消除内联元素的间隙 */
+
+  /* 3. 隐藏边框 */
+  border: none;
+  outline: none; /* 选中时的蓝框也去掉 */
+
+  /* 4. 样式美化 */
+  box-sizing: border-box; /* 确保 padding 不会撑开宽度 */
+  background-color: transparent;
+  /* 5. 自动高度的关键（目前仅最新版 Chrome/Edge 支持） */
+  /* 如果浏览器支持，这行代码能让高度根据内容自动撑开 */
+  field-sizing: content; 
+
+  /* 6. 兼容性降级：确保字体排版与外部一致 */
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  padding: 0;
+  margin: 0;
+}
+
+.md-block-active {
+  background-color: rgba(18, 71, 245, 0.2);
+  border-radius: 4px;
+  transition: background-color 0.5s ease;
+}
+
+.md-block-dirty {
+  background-color: rgba(245, 71, 18, 0.2);
+  border-radius: 4px;
+  transition: background-color 0.5s ease;
+}
