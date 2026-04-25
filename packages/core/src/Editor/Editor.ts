@@ -47,49 +47,17 @@ export class Editor {
 
     if (type === EditorActionType.MoveCursorDown) {
       const block = this.doc.getBlock(getIdFromBlock(selection!.anchorNode!))
-      const root = getBlockAnchor(selection!.anchorNode!)
-      if (!block || !root) return
+      if (!block) return
 
-      const line = Array.from(root.childNodes)
-      if (!line) return
-
-      const unit = resolveDivideRange(root)
-      const node = selection!.anchorNode!
-      let lastMaxOffset = 0
-      for(let i = 0; i < unit.length; i++) {
-        if (node === unit[i].node) {
-          lastMaxOffset = i
-          break
-        }
-      }
-
-      const offset = lastMaxOffset + selection!.anchorOffset
-
-      this.dom.setCursor(block.id, offset, 'down')
+      const caretX = parseFloat(data ?? '0')
+      this.dom.setCursorByPixel(block.id, caretX, 'down')
 
     } else if (type === EditorActionType.MoveCursorUp) {
-
       const block = this.doc.getBlock(getIdFromBlock(selection!.anchorNode!))
-      const root = getBlockAnchor(selection!.anchorNode!)
-      console.log(block, root)
-      if (!block || !root) return
+      if (!block) return
 
-      const line = Array.from(root.childNodes)
-      if (!line) return
-
-      const unit = resolveDivideRange(root)
-      const node = selection!.anchorNode!
-      let lastMaxOffset = 0
-      for(let i = 0; i < unit.length; i++) {
-        if (node === unit[i].node) {
-          lastMaxOffset = i
-          break
-        }
-      }
-
-      const offset = lastMaxOffset + selection!.anchorOffset
-
-      this.dom.setCursor(block.id, offset, 'up')
+      const caretX = parseFloat(data ?? '0')
+      this.dom.setCursorByPixel(block.id, caretX, 'up')
     }
 
     if (type === EditorActionType.InsertText || type === EditorActionType.Paste) {
@@ -320,4 +288,3 @@ const getBlockAnchor = (node: Node): HTMLDivElement | null => {
 const getIdFromBlock = (node: Node): string => {
   return getBlockAnchor(node)?.dataset.blockId ?? ''
 }
-

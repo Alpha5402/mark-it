@@ -255,8 +255,7 @@ export class EventController {
   private onKeyDown = (e: KeyboardEvent) => {
     if (this.inInputTransaction) return
 
-    if (e.key === 'ArrowDown') {
-
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       const selection = window.getSelection()
       if (!selection || !selection.anchorNode) return
 
@@ -266,38 +265,15 @@ export class EventController {
       const caretRect = getCaretRect(selection)
       if (!caretRect) return
 
-      const blockRect = getBlockRect(blockEl)
-
-      // ✅ 还在 block 内部（多行）
-      if (!isAtLastVisualLine(caretRect, blockRect)) {
-        // 放行浏览器默认行为
-        return
-      }
-
-      // ❌ 已经在最后一行，接管
+      // 始终拦截上下键，避免浏览器默认行为在 flex 布局中产生异常
       e.preventDefault()
-      this.emit(EditorActionType.MoveCursorDown, null, undefined)
-    } else if (e.key === 'ArrowUp') {
-      const selection = window.getSelection()
-      if (!selection || !selection.anchorNode) return
 
-      const blockEl = getBlockAnchor(selection.anchorNode)
-      if (!blockEl) return
-
-      const caretRect = getCaretRect(selection)
-      if (!caretRect) return
-
-      const blockRect = getBlockRect(blockEl)
-
-      // ✅ 还在 block 内部（多行）
-      if (!isAtFirstVisualLine(caretRect, blockRect)) {
-        // 放行浏览器默认行为
-        return
-      }
-
-      // ❌ 已经在第一行，接管
-      e.preventDefault()
-      this.emit(EditorActionType.MoveCursorUp, null, undefined)
+      const direction = e.key === 'ArrowDown' ? 'down' : 'up'
+      this.emit(
+        direction === 'down' ? EditorActionType.MoveCursorDown : EditorActionType.MoveCursorUp,
+        null,
+        { data: String(caretRect.left) }
+      )
     }
 
     // 示例：拦截 Undo (如果我们要自己做历史记录的话)
@@ -363,26 +339,7 @@ export class EventController {
 }
 
 
-function isAtFirstVisualLine(
-  caret: DOMRect,
-  block: DOMRect,
-  tolerance = 2
-) {
-  return caret.top <= block.top + tolerance
-}
 
-function isAtLastVisualLine(
-  caret: DOMRect,
-  block: DOMRect,
-  tolerance = 5
-) {
-  console.log('caret.bottom', caret.bottom, 'block.bottom', block.bottom)
-  return caret.bottom >= block.bottom - tolerance
-}
-
-function getBlockRect(blockEl: HTMLElement): DOMRect {
-  return blockEl.getBoundingClientRect()
-}
 
 function getCaretRect(selection: Selection): DOMRect | null {
   if (selection.rangeCount === 0) return null
