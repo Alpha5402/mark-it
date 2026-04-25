@@ -79,6 +79,7 @@ hr {
 .md-line-block {
   display: flex;
   flex-wrap: nowrap;
+  align-items: baseline; /* baseline 对齐，确保结构性标记符和文本对齐 */
   padding: 4px;
   tab-size: 4;
   line-height: normal;
@@ -99,6 +100,7 @@ hr {
   line-height: 1.6;
   list-style-position: outside; 
   display: flex;
+  align-items: baseline; /* baseline 对齐 */
 }
 
 /* 列表项的一行 */
@@ -182,34 +184,40 @@ hr {
   text-decoration: line-through;
 }
 
+.md-heading-1,
+.md-heading-2,
+.md-heading-3,
+.md-heading-4,
+.md-heading-5,
+.md-heading-6 {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: baseline; /* baseline 对齐，确保标记符和文本对齐 */
+  font-weight: bold;
+}
+
 .md-heading-1 {
   font-size: 2em;
-  font-weight: bold;
 }
 
 .md-heading-2 {
   font-size: 1.8em;
-  font-weight: bold;
 }
 
 .md-heading-3 {
   font-size: 1.6em;
-  font-weight: bold;
 }
 
 .md-heading-4 {
   font-size: 1.4em;
-  font-weight: bold;
 }
 
 .md-heading-5 {
   font-size: 1.2em;
-  font-weight: bold;
 }
 
 .md-heading-6 {
   font-size: 1em;
-  font-weight: bold;
 }
 
 
@@ -284,7 +292,7 @@ hr {
   background: none;
   padding: 0;
   font-family: 'Maple Mono', monospace;
-  font-size: 0.9em;
+  font-size: inherit; /* 继承父容器字体大小，适配 heading 等 */
   user-select: text;
 }
 
@@ -302,10 +310,19 @@ hr {
   background: none;
   padding: 0;
   font-family: 'Maple Mono', monospace;
-  font-size: 0.9em;
+  font-size: inherit; /* 继承父容器字体大小，适配 heading 等 */
+  line-height: inherit; /* 继承行高，保持对齐 */
   user-select: text;
   white-space: pre;
   flex-shrink: 0;
+  vertical-align: baseline; /* 确保 baseline 对齐 */
+}
+
+/* 展开模式下 indent 作为 struct-marker 时，宽度由文本内容决定 */
+.md-struct-marker.md-indent,
+.md-struct-marker.md-spacing {
+  width: auto;
+  height: auto;
 }
 
 /* 展开模式下的 block */

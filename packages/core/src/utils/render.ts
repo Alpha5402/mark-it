@@ -46,28 +46,29 @@ export const renderBlock = (block: BlockModel, expanded: boolean = false): Docum
       frag.appendChild(document.createElement('br'))
       break
     case 'heading': {
+      const depth = (block as HeadingBlock).headingDepth
+      const div = document.createElement('div')
+      div.className = `md-heading-${depth}`
+
       if (expanded) {
-        // 展开模式：渲染为 struct-marker 前缀 + inline 内容（不包裹在 heading div 中）
-        const depth = (block as HeadingBlock).headingDepth
+        // 展开模式：在 heading 容器内渲染 struct-marker 前缀 + inline 内容
         const markerSpan = document.createElement('span')
         markerSpan.classList.add('md-struct-marker')
         markerSpan.textContent = '#'.repeat(depth) + ' '
-        frag.appendChild(markerSpan)
+        div.appendChild(markerSpan)
 
         const content = document.createElement('div')
         content.className = `md-inline-content`
         block.inline?.forEach((inline) => {
           content.appendChild(renderInlineBlock(inline, expanded))
         })
-        frag.appendChild(content)
+        div.appendChild(content)
       } else {
-        const div = document.createElement('div');
-        div.className = `md-heading-${(block as HeadingBlock).headingDepth}`;
         block.inline?.forEach((inline) => {
           div.appendChild(renderInlineBlock(inline, expanded))
         })
-        frag.appendChild(div);
       }
+      frag.appendChild(div)
       break
     }
     case 'list-item': {
