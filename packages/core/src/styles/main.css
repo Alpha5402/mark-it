@@ -290,7 +290,7 @@ hr {
   text-decoration: none;
   background: none;
   padding: 0;
-  font-family: 'Maple Mono', monospace;
+  font-family: inherit; /* 与正文保持一致，避免错位 */
   font-size: inherit; /* 继承父容器字体大小，适配 heading 等 */
   user-select: text;
 }
@@ -308,7 +308,7 @@ hr {
   text-decoration: none;
   background: none;
   padding: 0;
-  font-family: 'Maple Mono', monospace;
+  font-family: inherit; /* 与正文保持一致，避免错位 */
   font-size: inherit; /* 继承父容器字体大小，适配 heading 等 */
   line-height: inherit; /* 继承行高，保持对齐 */
   user-select: text;
