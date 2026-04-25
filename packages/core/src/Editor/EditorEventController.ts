@@ -230,6 +230,11 @@ export class EventController {
           prevSelection: beforeSelection
         })
     }
+
+    // preventDefault() 阻止了浏览器默认输入行为，input 事件不会触发，
+    // 所以需要在这里手动重置 inInputTransaction，否则 onKeyDown 会被永久阻塞
+    this.inInputTransaction = false
+    this.pendingMutations = []
   }
 
   private onInput = (e: Event) => {
