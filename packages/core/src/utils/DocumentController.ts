@@ -96,8 +96,9 @@ export class DocumentController {
     const block = this.blocks.get(blockId)
     if (!block) return null
 
-    // 用 parseLine 重新解析整行文本
-    const newBlock = parseLine({ id: block.id, raw: newRawText, leading: '' })
+    // 用 parseLine 重新解析整行文本（需要正确提取 leading 以保留缩进信息）
+    const leading = newRawText.match(/^[ \t]*/)?.[0] ?? ''
+    const newBlock = parseLine({ id: block.id, raw: newRawText, leading })
 
     // 判断是否发生了结构变化
     if (newBlock.type !== block.type) {

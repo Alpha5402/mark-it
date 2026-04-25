@@ -103,12 +103,13 @@ export class Editor {
       const root = getBlockAnchor(selection!.anchorNode!)
       if (!block || !root) return
 
-      // 检测光标是否在标识符内部（inline 标记符或结构性标记符）
-      const markerInfo = detectMarkerContext(selection!.anchorNode!, selection!.anchorOffset)
+      // 当 block 处于展开模式时，所有输入都走全行 reconcile 路径
+      // 因为展开模式下标记符是可见文本，任何输入都可能影响标记符的配对关系
+      const isExpanded = this.dom.getExpandedBlockId() === block.id
       
-      if (markerInfo) {
-        // 光标在标识符内部，走全行 reconcile 路径
-        this.handleInsertInMarker(block, root, markerInfo, data!)
+      if (isExpanded) {
+        // 展开模式：走全行 reconcile 路径
+        this.handleInsertInMarker(block, root, selection!.anchorNode!, selection!.anchorOffset, data!)
         return  // 已处理完展开/收起和光标定位，不再执行末尾逻辑
       } else {
         // 正常路径：字符级 insertText
@@ -123,12 +124,12 @@ export class Editor {
       const root = getBlockAnchor(selection!.anchorNode!)
       if (!block || !root) return
 
-      // 检测是否在标识符内部
-      const markerInfo = detectMarkerContext(selection!.anchorNode!, selection!.anchorOffset)
+      // 当 block 处于展开模式时，所有 IME 输入都走 reconcile 路径
+      const isExpanded = this.dom.getExpandedBlockId() === block.id
 
-      if (markerInfo) {
-        // 标识符内部的 IME 输入，记录 raw offset
-        const rawOffset = computeRawOffset(root, markerInfo.anchorNode, markerInfo.anchorOffset)
+      if (isExpanded) {
+        // 展开模式：记录 raw offset
+        const rawOffset = computeRawOffset(root, selection!.anchorNode!, selection!.anchorOffset)
         if (rawOffset === null) return
 
         this.scheduler.markDirty(block.id)
@@ -156,7 +157,7 @@ export class Editor {
       if (!block) return
 
       if (this.compositionContext!.isInMarker) {
-        // 标识符内部的 IME 输入，走 reconcile 路径
+        // 展开模式的 IME 输入，走 reconcile 路径
         const root = this.dom.getNodeById(block.id)
         if (!root) return
         this.handleInsertInMarkerByRawOffset(block, root, this.compositionContext!.startOffset, data!)
@@ -264,14 +265,15 @@ export class Editor {
   private handleInsertInMarker(
     block: BlockModel,
     blockEl: HTMLElement,
-    markerInfo: MarkerContext,
+    anchorNode: Node,
+    anchorOffset: number,
     text: string
   ) {
     // 1. 从 model 重建整行原始文本
     const rawText = this.doc.getRawText(block.id)
     
     // 2. 计算字符在原始文本中的插入位置
-    const rawOffset = computeRawOffset(blockEl, markerInfo.anchorNode, markerInfo.anchorOffset)
+    const rawOffset = computeRawOffset(blockEl, anchorNode, anchorOffset)
     if (rawOffset === null) return
 
     // 3. 将字符插入到原始文本中
@@ -505,40 +507,6 @@ function isInStructMarkerSpan(node: Node): boolean {
     el = el.parentElement
   }
   return false
-}
-
-// ========== 标识符内部输入检测 ==========
-
-interface MarkerContext {
-  type: 'inline-marker' | 'struct-marker'
-  anchorNode: Node
-  anchorOffset: number
-}
-
-/**
- * 检测光标是否在标识符内部
- * 返回 MarkerContext 或 null（不在标识符内部）
- */
-function detectMarkerContext(anchorNode: Node, anchorOffset: number): MarkerContext | null {
-  // 检查是否在 inline 标记符内（如 **、~~、== 等）
-  if (isInMarkerSpan(anchorNode)) {
-    return {
-      type: 'inline-marker',
-      anchorNode,
-      anchorOffset
-    }
-  }
-
-  // 检查是否在结构性标记符内（如 indent、list marker、heading marker）
-  if (isInStructMarkerSpan(anchorNode)) {
-    return {
-      type: 'struct-marker',
-      anchorNode,
-      anchorOffset
-    }
-  }
-
-  return null
 }
 
 function computeRawOffset(
