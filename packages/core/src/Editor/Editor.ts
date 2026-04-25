@@ -49,14 +49,52 @@ export class Editor {
       if (!block) return
 
       const caretX = parseFloat(data ?? '0')
+      
+      // 先判断目标是同 block 还是跨 block
+      const moveTarget = this.dom.getVerticalMoveTarget(block.id, 'down')
+      if (moveTarget && moveTarget.type === 'cross-block') {
+        // 跨 block 移动：先展开目标 block，收起当前 block
+        const expandedBlockId = this.dom.getExpandedBlockId()
+        if (expandedBlockId) {
+          const oldBlock = this.doc.getBlock(expandedBlockId)
+          if (oldBlock) this.dom.collapseBlock(oldBlock)
+        }
+        const targetBlock = this.doc.getBlock(moveTarget.targetBlockId)
+        if (targetBlock) {
+          this.dom.expandBlock(moveTarget.targetBlockId, targetBlock)
+        }
+      }
+      
+      // 在展开后的 DOM 上执行像素定位
       this.dom.setCursorByPixel(block.id, caretX, 'down')
+      // 上下键移动已处理完展开/收起，直接返回，避免末尾逻辑用旧 selection 重复操作
+      return
 
     } else if (type === EditorActionType.MoveCursorUp) {
       const block = this.doc.getBlock(getIdFromBlock(selection!.anchorNode!))
       if (!block) return
 
       const caretX = parseFloat(data ?? '0')
+      
+      // 先判断目标是同 block 还是跨 block
+      const moveTarget = this.dom.getVerticalMoveTarget(block.id, 'up')
+      if (moveTarget && moveTarget.type === 'cross-block') {
+        // 跨 block 移动：先展开目标 block，收起当前 block
+        const expandedBlockId = this.dom.getExpandedBlockId()
+        if (expandedBlockId) {
+          const oldBlock = this.doc.getBlock(expandedBlockId)
+          if (oldBlock) this.dom.collapseBlock(oldBlock)
+        }
+        const targetBlock = this.doc.getBlock(moveTarget.targetBlockId)
+        if (targetBlock) {
+          this.dom.expandBlock(moveTarget.targetBlockId, targetBlock)
+        }
+      }
+      
+      // 在展开后的 DOM 上执行像素定位
       this.dom.setCursorByPixel(block.id, caretX, 'up')
+      // 上下键移动已处理完展开/收起，直接返回，避免末尾逻辑用旧 selection 重复操作
+      return
     }
 
     if (type === EditorActionType.InsertText || type === EditorActionType.Paste) {

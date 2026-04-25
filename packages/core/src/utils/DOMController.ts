@@ -294,6 +294,60 @@ export class DOMController {
   }
 
   /**
+   * 判断上下行移动的目标：是同 block 内移动还是跨 block 移动
+   * 返回 { type: 'same-block' } 或 { type: 'cross-block', targetBlockId: string }
+   * 用于在移动前先完成展开/收起操作
+   */
+  getVerticalMoveTarget(blockId: string, direction: 'up' | 'down'): 
+    { type: 'same-block' } | { type: 'cross-block'; targetBlockId: string } | null {
+    const block = this.nodes.get(blockId)
+    if (!block || !block.parentElement) return null
+
+    const LINE_TOLERANCE = 3
+
+    // 检查当前 block 是否有多个视觉行
+    const candidates = collectCandidates(block)
+    const lines = groupByLine(candidates, LINE_TOLERANCE)
+
+    if (lines.length > 1) {
+      const sel = window.getSelection()
+      if (sel && sel.rangeCount > 0) {
+        const caretRange = sel.getRangeAt(0).cloneRange()
+        caretRange.collapse(true)
+        const caretRects = caretRange.getClientRects()
+        if (caretRects.length > 0) {
+          const caretTop = caretRects[0].top
+          let currentLineIdx = -1
+          for (let i = 0; i < lines.length; i++) {
+            if (Math.abs(lines[i][0].rect.top - caretTop) <= LINE_TOLERANCE) {
+              currentLineIdx = i
+              break
+            }
+          }
+          if (currentLineIdx !== -1) {
+            const targetLineIdx = direction === 'down' ? currentLineIdx + 1 : currentLineIdx - 1
+            if (targetLineIdx >= 0 && targetLineIdx < lines.length) {
+              return { type: 'same-block' }
+            }
+          }
+        }
+      }
+    }
+
+    // 需要跨 block
+    const nextBlock = direction === 'down'
+      ? findNextLineBlock(block.parentElement, block)
+      : findPrevLineBlock(block.parentElement, block)
+
+    if (!nextBlock) return null
+
+    const targetBlockId = nextBlock.dataset.blockId
+    if (!targetBlockId) return null
+
+    return { type: 'cross-block', targetBlockId }
+  }
+
+  /**
    * 基于像素 x 坐标实现上下行光标移动
    * 
    * 策略：
@@ -308,57 +362,9 @@ export class DOMController {
 
     const LINE_TOLERANCE = 3
 
-    // ---- 辅助：收集一个 block 中所有可编辑位置的候选 ----
-    type Candidate = { range: Range; rect: DOMRect }
-    const collectCandidates = (blockEl: HTMLElement): Candidate[] => {
-      const units = resolveDivideRange(blockEl)
-      // 过滤掉 indent/spacing 等纯装饰性元素
-      const editableUnits = units.filter(u => !u.type)
-      const result: Candidate[] = []
-      for (const unit of editableUnits) {
-        const range = document.createRange()
-        range.setStart(unit.node, unit.offset)
-        range.collapse(true)
-        const rects = range.getClientRects()
-        if (rects.length === 0) continue
-        result.push({ range, rect: rects[0] })
-      }
-      return result
-    }
-
-    // ---- 辅助：按视觉行分组（相同 top 值的归为一组）----
-    const groupByLine = (candidates: Candidate[]): Candidate[][] => {
-      if (candidates.length === 0) return []
-      const sorted = [...candidates].sort((a, b) => a.rect.top - b.rect.top)
-      const lines: Candidate[][] = [[sorted[0]]]
-      for (let i = 1; i < sorted.length; i++) {
-        const lastLine = lines[lines.length - 1]
-        if (Math.abs(sorted[i].rect.top - lastLine[0].rect.top) <= LINE_TOLERANCE) {
-          lastLine.push(sorted[i])
-        } else {
-          lines.push([sorted[i]])
-        }
-      }
-      return lines
-    }
-
-    // ---- 辅助：在一组候选中找 x 最接近 targetX 的位置 ----
-    const findClosestInLine = (line: Candidate[]): Range | null => {
-      let best: Range | null = null
-      let bestDist = Infinity
-      for (const { range, rect } of line) {
-        const dist = Math.abs(rect.left - targetX)
-        if (dist < bestDist) {
-          bestDist = dist
-          best = range
-        }
-      }
-      return best
-    }
-
     // ---- 第一步：尝试在当前 block 内移动 ----
     const currentCandidates = collectCandidates(block)
-    const currentLines = groupByLine(currentCandidates)
+    const currentLines = groupByLine(currentCandidates, LINE_TOLERANCE)
 
     if (currentLines.length > 1) {
       // 当前 block 有多个视觉行，找到光标所在行
@@ -382,7 +388,7 @@ export class DOMController {
             const targetLineIdx = direction === 'down' ? currentLineIdx + 1 : currentLineIdx - 1
             if (targetLineIdx >= 0 && targetLineIdx < currentLines.length) {
               // 同 block 内有目标行，直接在同 block 内移动
-              const bestRange = findClosestInLine(currentLines[targetLineIdx])
+              const bestRange = findClosestInLine(currentLines[targetLineIdx], targetX)
               if (bestRange) {
                 applyRange(bestRange)
                 return
@@ -410,12 +416,12 @@ export class DOMController {
       return
     }
 
-    const nextLines = groupByLine(nextCandidates)
+    const nextLines = groupByLine(nextCandidates, LINE_TOLERANCE)
     if (nextLines.length === 0) return
 
     // 向下 → 取目标 block 的第一行；向上 → 取目标 block 的最后一行
     const targetLine = direction === 'down' ? nextLines[0] : nextLines[nextLines.length - 1]
-    const bestRange = findClosestInLine(targetLine)
+    const bestRange = findClosestInLine(targetLine, targetX)
 
     if (bestRange) {
       applyRange(bestRange)
@@ -923,6 +929,54 @@ export function resolveDivideRange(
     }
   })
   return units
+}
+
+// ========== 上下行移动辅助函数 ==========
+
+type Candidate = { range: Range; rect: DOMRect }
+
+function collectCandidates(blockEl: HTMLElement): Candidate[] {
+  const units = resolveDivideRange(blockEl)
+  // 过滤掉 indent/spacing 等纯装饰性元素
+  const editableUnits = units.filter(u => !u.type)
+  const result: Candidate[] = []
+  for (const unit of editableUnits) {
+    const range = document.createRange()
+    range.setStart(unit.node, unit.offset)
+    range.collapse(true)
+    const rects = range.getClientRects()
+    if (rects.length === 0) continue
+    result.push({ range, rect: rects[0] })
+  }
+  return result
+}
+
+function groupByLine(candidates: Candidate[], tolerance: number): Candidate[][] {
+  if (candidates.length === 0) return []
+  const sorted = [...candidates].sort((a, b) => a.rect.top - b.rect.top)
+  const lines: Candidate[][] = [[sorted[0]]]
+  for (let i = 1; i < sorted.length; i++) {
+    const lastLine = lines[lines.length - 1]
+    if (Math.abs(sorted[i].rect.top - lastLine[0].rect.top) <= tolerance) {
+      lastLine.push(sorted[i])
+    } else {
+      lines.push([sorted[i]])
+    }
+  }
+  return lines
+}
+
+function findClosestInLine(line: Candidate[], targetX: number): Range | null {
+  let best: Range | null = null
+  let bestDist = Infinity
+  for (const { range, rect } of line) {
+    const dist = Math.abs(rect.left - targetX)
+    if (dist < bestDist) {
+      bestDist = dist
+      best = range
+    }
+  }
+  return best
 }
 
 function applyRange(range: Range) {
