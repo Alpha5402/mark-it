@@ -268,6 +268,48 @@ export class EventController {
   private onKeyDown = (e: KeyboardEvent) => {
     if (this.inInputTransaction) return
 
+    // 拦截左右键：跳过 struct-marker 与相邻元素之间的 DOM 边界幽灵位置
+    // 注意：struct-marker 内部的字符位置是正常的，用户应该能在其中移动
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault()
+      const sel = window.getSelection()
+      if (!sel) return
+
+      const direction = e.key === 'ArrowRight' ? 'forward' : 'backward'
+
+      // 获取移动前的视觉位置
+      let prevRect = getCaretVisualRect(sel)
+
+      // 循环移动，跳过所有幽灵位置
+      const MAX_ITERATIONS = 20
+      for (let i = 0; i < MAX_ITERATIONS; i++) {
+        sel.modify('move', direction, 'character')
+        if (!sel.anchorNode) break
+
+        // 情况 1：光标落在 ELEMENT_NODE 上（DOM 边界幽灵位置），继续移动
+        if (sel.anchorNode.nodeType === Node.ELEMENT_NODE) {
+          continue
+        }
+
+        // 情况 2：光标在文本节点内，检查视觉位置是否发生了变化
+        const curRect = getCaretVisualRect(sel)
+        if (prevRect && curRect) {
+          // 如果视觉位置没有变化（x 坐标差 < 1px），说明是幽灵位置，继续移动
+          if (Math.abs(curRect.left - prevRect.left) < 1 && Math.abs(curRect.top - prevRect.top) < 1) {
+            prevRect = curRect
+            continue
+          }
+        }
+
+        // 视觉位置发生了变化，这是一个有效的光标位置，停止
+        break
+      }
+
+      // 清除 stickyX
+      this.stickyX = null
+      return
+    }
+
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       const selection = window.getSelection()
       if (!selection || !selection.anchorNode) return
@@ -398,4 +440,17 @@ const getBlockAnchor = (node: Node): HTMLDivElement | null => {
 
 const getIdFromBlock = (node: Node): string => {
   return getBlockAnchor(node)?.dataset.blockId ?? ''
+}
+
+/**
+ * 获取当前光标的视觉位置矩形
+ * 用于检测 sel.modify 后光标是否真的发生了视觉移动
+ */
+function getCaretVisualRect(sel: Selection): DOMRect | null {
+  if (sel.rangeCount === 0) return null
+  const range = sel.getRangeAt(0).cloneRange()
+  range.collapse(true)
+  const rects = range.getClientRects()
+  if (rects.length > 0) return rects[0]
+  return range.getBoundingClientRect()
 }

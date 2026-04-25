@@ -1,6 +1,6 @@
 
-import { BlockModel, InlineModel, ListItemBlock, HeadingBlock, TextInline } from "../types"
-import { parseLine } from "./parse"
+import { BlockModel, InlineModel, ListItemBlock, HeadingBlock, TextInline, INLINE_FLAG } from "../types"
+import { parseLine, inlineParse } from "./parse"
 import { initialTokenize, tokenizeByLine, uid } from "./tokenize"
 import { BlockMatchResult, matchListItem, matchHeading } from "./matcher"
 
@@ -27,6 +27,99 @@ export class DocumentController {
 
   insertBlockAfter = (blockId: string, block: BlockModel) => {
     this.blocks.set(blockId, block)
+  }
+
+  /**
+   * 从 block model 重建整行原始 Markdown 文本（包含标识符）
+   * 例如 list-item: "- **bold**text" / heading: "## title"
+   */
+  getRawText(blockId: string): string {
+    const block = this.blocks.get(blockId)
+    if (!block) return ''
+
+    let raw = ''
+
+    // 1. 缩进
+    if (block.nesting && block.nesting > 0) {
+      raw += ' '.repeat(block.nesting)
+    }
+
+    // 2. 结构性标记符
+    if (block.type === 'list-item') {
+      const listItem = block as ListItemBlock
+      if (listItem.style.ordered) {
+        raw += listItem.style.order
+      } else {
+        raw += '- '
+      }
+    } else if (block.type === 'heading') {
+      const heading = block as HeadingBlock
+      raw += '#'.repeat(heading.headingDepth) + ' '
+    }
+
+    // 3. inline 内容（包含 inline 标记符）
+    if (block.inline) {
+      raw += this.inlineToRawText(block.inline)
+    }
+
+    return raw
+  }
+
+  /**
+   * 将 inline model 数组重建为原始 Markdown 文本（包含标记符如 **、~~、== 等）
+   */
+  private inlineToRawText(inlines: InlineModel[]): string {
+    let result = ''
+    for (const inline of inlines) {
+      if (inline.type === 'text') {
+        if (inline.markers && inline.marks !== 0) {
+          result += inline.markers.prefix + inline.text + inline.markers.suffix
+        } else {
+          result += inline.text
+        }
+      } else if (inline.type === 'link') {
+        const linkText = this.inlineToRawText(inline.children)
+        result += `[${linkText}](${inline.href})`
+      }
+    }
+    return result
+  }
+
+  /**
+   * 从修改后的原始文本进行全行 reconcile
+   * 用于标识符内部输入的场景
+   */
+  reconcileFromRawText(blockId: string, newRawText: string): 
+    { kind: 'inline-update'; block: BlockModel } | 
+    { kind: 'block-transform'; from: BlockModel; to: BlockModel } | 
+    null {
+    const block = this.blocks.get(blockId)
+    if (!block) return null
+
+    // 用 parseLine 重新解析整行文本
+    const newBlock = parseLine({ id: block.id, raw: newRawText, leading: '' })
+
+    // 判断是否发生了结构变化
+    if (newBlock.type !== block.type) {
+      // 结构变化（如 list-item → paragraph，heading → paragraph）
+      this.blocks.set(blockId, newBlock)
+      return { kind: 'block-transform', from: block, to: newBlock }
+    }
+
+    // 类型相同但可能深度变了（heading）
+    if (newBlock.type === 'heading' && block.type === 'heading') {
+      const newHeading = newBlock as HeadingBlock
+      const oldHeading = block as HeadingBlock
+      if (newHeading.headingDepth !== oldHeading.headingDepth) {
+        this.blocks.set(blockId, newBlock)
+        return { kind: 'block-transform', from: block, to: newBlock }
+      }
+    }
+
+    // 结构不变，更新 inline
+    block.inline = newBlock.inline
+    block.nesting = newBlock.nesting
+    return { kind: 'inline-update', block }
   }
 
   reconcileBlock(id: string, domText: string) {
@@ -79,9 +172,9 @@ export class DocumentController {
     let prefixOffset = 0
 
     if (block.nesting) {
-      const indent = Math.floor(block.nesting / 4)
-      const space = block.nesting % 4
-      prefixOffset += (indent + space) * 2
+      // 每个 fullLevel indent = 4 个空格字符，remainder = 对应数量的空格字符
+      // 总偏移 = nesting（即空格总数）
+      prefixOffset += block.nesting
     }
 
     if (block.type === 'list-item') {

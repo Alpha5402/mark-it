@@ -317,17 +317,17 @@ hr {
   vertical-align: baseline; /* 确保 baseline 对齐 */
 }
 
-/* 展开模式下 indent 作为 struct-marker 时，保持与非展开模式相同的尺寸 */
+/* 展开模式下 indent 作为 struct-marker 时，宽度由文本内容自然撑开 */
 .md-struct-marker.md-indent {
-  width: 2em;
+  width: auto;
   height: auto;
-  display: inline-block;
+  display: inline;
 }
 
 .md-struct-marker.md-spacing {
-  width: 0.5em;
+  width: auto;
   height: auto;
-  display: inline-block;
+  display: inline;
 }
 
 /* 展开模式下列表 marker 宽度自适应内容（如 "- "、"1. "） */

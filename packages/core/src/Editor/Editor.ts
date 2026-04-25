@@ -14,7 +14,7 @@ export class Editor {
   private onChange?: (content: string) => void;
   isHandlingDelete: boolean = false
   controller: EventController
-  private compositionContext: { blockId: string, startOffset: number } | null = null
+  private compositionContext: { blockId: string, startOffset: number, isInMarker: boolean } | null = null
 
   constructor(
     previewContainer: HTMLDivElement,
@@ -103,9 +103,18 @@ export class Editor {
       const root = getBlockAnchor(selection!.anchorNode!)
       if (!block || !root) return
 
-      const offset = computeSemanticOffset(root, selection!.anchorNode!, selection!.anchorOffset, this.doc.prefixOffset(block.id))
-      if (offset === null) return
-      this.scheduler.insertText(block.id, offset, data!, offset + data!.length)
+      // 检测光标是否在标识符内部（inline 标记符或结构性标记符）
+      const markerInfo = detectMarkerContext(selection!.anchorNode!, selection!.anchorOffset)
+      
+      if (markerInfo) {
+        // 光标在标识符内部，走全行 reconcile 路径
+        this.handleInsertInMarker(block, root, markerInfo, data!)
+      } else {
+        // 正常路径：字符级 insertText
+        const offset = computeSemanticOffset(root, selection!.anchorNode!, selection!.anchorOffset, this.doc.prefixOffset(block.id))
+        if (offset === null) return
+        this.scheduler.insertText(block.id, offset, data!, offset + data!.length)
+      }
     }
 
     if (type === EditorActionType.CompositionStart) {
@@ -113,14 +122,30 @@ export class Editor {
       const root = getBlockAnchor(selection!.anchorNode!)
       if (!block || !root) return
 
-      const offset = computeSemanticOffset(root, selection!.anchorNode!, selection!.anchorOffset, this.doc.prefixOffset(block.id))
-      if (offset === null) return
+      // 检测是否在标识符内部
+      const markerInfo = detectMarkerContext(selection!.anchorNode!, selection!.anchorOffset)
 
-      this.scheduler.markDirty(block.id)
+      if (markerInfo) {
+        // 标识符内部的 IME 输入，记录 raw offset
+        const rawOffset = computeRawOffset(root, markerInfo.anchorNode, markerInfo.anchorOffset)
+        if (rawOffset === null) return
 
-      this.compositionContext = {
-        blockId: block.id,
-        startOffset: offset
+        this.scheduler.markDirty(block.id)
+        this.compositionContext = {
+          blockId: block.id,
+          startOffset: rawOffset,
+          isInMarker: true
+        }
+      } else {
+        const offset = computeSemanticOffset(root, selection!.anchorNode!, selection!.anchorOffset, this.doc.prefixOffset(block.id))
+        if (offset === null) return
+
+        this.scheduler.markDirty(block.id)
+        this.compositionContext = {
+          blockId: block.id,
+          startOffset: offset,
+          isInMarker: false
+        }
       }
       console.log('compositionContext', this.compositionContext)
     }
@@ -129,8 +154,15 @@ export class Editor {
       const block = this.doc.getBlock(this.compositionContext!.blockId)
       if (!block) return
 
-      const offset = this.compositionContext!.startOffset
-      this.scheduler.insertText(block.id, offset, data!, offset + data!.length)
+      if (this.compositionContext!.isInMarker) {
+        // 标识符内部的 IME 输入，走 reconcile 路径
+        const root = this.dom.getNodeById(block.id)
+        if (!root) return
+        this.handleInsertInMarkerByRawOffset(block, root, this.compositionContext!.startOffset, data!)
+      } else {
+        const offset = this.compositionContext!.startOffset
+        this.scheduler.insertText(block.id, offset, data!, offset + data!.length)
+      }
       this.dom.purify()
     }
 
@@ -220,6 +252,91 @@ export class Editor {
     
   destroy() {
     this.view.destroy()
+  }
+
+  /**
+   * 处理在标识符内部的输入
+   * 将字符插入到整行原始文本的正确位置，然后全行 reconcile
+   */
+  private handleInsertInMarker(
+    block: BlockModel,
+    blockEl: HTMLElement,
+    markerInfo: MarkerContext,
+    text: string
+  ) {
+    // 1. 从 model 重建整行原始文本
+    const rawText = this.doc.getRawText(block.id)
+    
+    // 2. 计算字符在原始文本中的插入位置
+    const rawOffset = computeRawOffset(blockEl, markerInfo.anchorNode, markerInfo.anchorOffset)
+    if (rawOffset === null) return
+
+    // 3. 将字符插入到原始文本中
+    const newRawText = rawText.slice(0, rawOffset) + text + rawText.slice(rawOffset)
+    console.log('[InsertInMarker] rawText:', JSON.stringify(rawText), '→', JSON.stringify(newRawText), 'at offset:', rawOffset)
+
+    // 4. 全行 reconcile
+    const effect = this.doc.reconcileFromRawText(block.id, newRawText)
+    if (!effect) return
+
+    if (effect.kind === 'inline-update') {
+      // 结构不变，重新渲染 inline
+      const updatedBlock = effect.block
+      // 用展开模式重新渲染整个 block
+      this.dom.replaceBlock(block, updatedBlock)
+      // 重新展开
+      this.dom.expandBlock(updatedBlock.id, updatedBlock)
+      // 恢复光标到插入位置之后
+      this.restoreCursorAfterMarkerEdit(updatedBlock, rawOffset + text.length)
+    } else if (effect.kind === 'block-transform') {
+      // 结构变化（如 list-item → paragraph）
+      this.dom.replaceBlock(effect.from, effect.to)
+      // 展开新 block
+      this.dom.expandBlock(effect.to.id, effect.to)
+      // 恢复光标
+      this.restoreCursorAfterMarkerEdit(effect.to, rawOffset + text.length)
+    }
+  }
+
+  /**
+   * 通过已知的 raw offset 在标识符内部插入文本（用于 IME 输入）
+   */
+  private handleInsertInMarkerByRawOffset(
+    block: BlockModel,
+    blockEl: HTMLElement,
+    rawOffset: number,
+    text: string
+  ) {
+    // 1. 从 model 重建整行原始文本
+    const rawText = this.doc.getRawText(block.id)
+    
+    // 2. 将字符插入到原始文本中
+    const newRawText = rawText.slice(0, rawOffset) + text + rawText.slice(rawOffset)
+    console.log('[InsertInMarker/IME] rawText:', JSON.stringify(rawText), '→', JSON.stringify(newRawText))
+
+    // 3. 全行 reconcile
+    const effect = this.doc.reconcileFromRawText(block.id, newRawText)
+    if (!effect) return
+
+    if (effect.kind === 'inline-update') {
+      const updatedBlock = effect.block
+      this.dom.replaceBlock(block, updatedBlock)
+      this.dom.expandBlock(updatedBlock.id, updatedBlock)
+      this.restoreCursorAfterMarkerEdit(updatedBlock, rawOffset + text.length)
+    } else if (effect.kind === 'block-transform') {
+      this.dom.replaceBlock(effect.from, effect.to)
+      this.dom.expandBlock(effect.to.id, effect.to)
+      this.restoreCursorAfterMarkerEdit(effect.to, rawOffset + text.length)
+    }
+  }
+
+  /**
+   * 在标识符编辑后恢复光标位置
+   * rawOffset 是在整行原始文本中的偏移
+   */
+  private restoreCursorAfterMarkerEdit(block: BlockModel, rawOffset: number) {
+    // 使用 raw offset 直接在 DOM 中定位光标（遍历所有文本节点，包括标识符）
+    this.dom.setCursorByRawOffset(block.id, rawOffset)
   }
 
   handleInput(id: string, blockEl: HTMLDivElement) {
@@ -395,4 +512,68 @@ function isInStructMarkerSpan(node: Node): boolean {
     el = el.parentElement
   }
   return false
+}
+
+// ========== 标识符内部输入检测 ==========
+
+interface MarkerContext {
+  type: 'inline-marker' | 'struct-marker'
+  anchorNode: Node
+  anchorOffset: number
+}
+
+/**
+ * 检测光标是否在标识符内部
+ * 返回 MarkerContext 或 null（不在标识符内部）
+ */
+function detectMarkerContext(anchorNode: Node, anchorOffset: number): MarkerContext | null {
+  // 检查是否在 inline 标记符内（如 **、~~、== 等）
+  if (isInMarkerSpan(anchorNode)) {
+    return {
+      type: 'inline-marker',
+      anchorNode,
+      anchorOffset
+    }
+  }
+
+  // 检查是否在结构性标记符内（如 indent、list marker、heading marker）
+  if (isInStructMarkerSpan(anchorNode)) {
+    return {
+      type: 'struct-marker',
+      anchorNode,
+      anchorOffset
+    }
+  }
+
+  return null
+}
+
+/**
+ * 计算光标在整行原始文本中的偏移（包含所有标识符）
+ * 
+ * 遍历 block 内所有文本节点（包括 struct-marker、inline marker、正文），
+ * 按 DOM 顺序累加字符偏移，得到光标在"完整原始文本"中的位置。
+ */
+function computeRawOffset(
+  blockEl: HTMLElement,
+  anchorNode: Node,
+  anchorOffset: number
+): number | null {
+  // 遍历 blockEl 内所有文本节点（按 DOM 顺序）
+  const walker = document.createTreeWalker(
+    blockEl,
+    NodeFilter.SHOW_TEXT,
+    null
+  )
+
+  let rawOffset = 0
+  let textNode: Text | null
+  while ((textNode = walker.nextNode() as Text)) {
+    if (textNode === anchorNode) {
+      return rawOffset + anchorOffset
+    }
+    rawOffset += textNode.textContent?.length ?? 0
+  }
+
+  return null
 }

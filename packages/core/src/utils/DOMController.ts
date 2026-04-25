@@ -294,6 +294,51 @@ export class DOMController {
     return null
   }
 
+  /**
+   * 根据 raw offset（整行原始文本中的偏移，包含标识符）定位光标
+   * 遍历 block 内所有文本节点（按 DOM 顺序），累加字符偏移
+   */
+  setCursorByRawOffset(blockId: string, rawOffset: number): void {
+    const blockEl = this.nodes.get(blockId)
+    if (!blockEl) return
+
+    const walker = document.createTreeWalker(
+      blockEl,
+      NodeFilter.SHOW_TEXT,
+      null
+    )
+
+    let accumulated = 0
+    let textNode: Text | null
+    while ((textNode = walker.nextNode() as Text)) {
+      const len = textNode.textContent?.length ?? 0
+      if (accumulated + len >= rawOffset) {
+        const localOffset = rawOffset - accumulated
+        const range = document.createRange()
+        range.setStart(textNode, Math.min(localOffset, len))
+        range.collapse(true)
+        applyRange(range)
+        return
+      }
+      accumulated += len
+    }
+
+    // fallback：放到最后一个文本节点的末尾
+    const allTextNodes: Text[] = []
+    const walker2 = document.createTreeWalker(blockEl, NodeFilter.SHOW_TEXT, null)
+    let tn: Text | null
+    while ((tn = walker2.nextNode() as Text)) {
+      allTextNodes.push(tn)
+    }
+    if (allTextNodes.length > 0) {
+      const last = allTextNodes[allTextNodes.length - 1]
+      const range = document.createRange()
+      range.setStart(last, last.textContent?.length ?? 0)
+      range.collapse(true)
+      applyRange(range)
+    }
+  }
+
   setCursor(blockId: string, offset: number, prefixOffset: number, direction: 'up' | 'down' | 'current') {
     const block = this.nodes.get(blockId)
     if (!block) return
