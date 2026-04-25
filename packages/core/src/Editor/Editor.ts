@@ -109,6 +109,7 @@ export class Editor {
       if (markerInfo) {
         // 光标在标识符内部，走全行 reconcile 路径
         this.handleInsertInMarker(block, root, markerInfo, data!)
+        return  // 已处理完展开/收起和光标定位，不再执行末尾逻辑
       } else {
         // 正常路径：字符级 insertText
         const offset = computeSemanticOffset(root, selection!.anchorNode!, selection!.anchorOffset, this.doc.prefixOffset(block.id))
@@ -159,6 +160,8 @@ export class Editor {
         const root = this.dom.getNodeById(block.id)
         if (!root) return
         this.handleInsertInMarkerByRawOffset(block, root, this.compositionContext!.startOffset, data!)
+        this.dom.purify()
+        return  // 已处理完展开/收起和光标定位，不再执行末尾逻辑
       } else {
         const offset = this.compositionContext!.startOffset
         this.scheduler.insertText(block.id, offset, data!, offset + data!.length)
