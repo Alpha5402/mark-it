@@ -131,16 +131,16 @@ hr {
 
 .md-indent {
   display: inline-block;
-  height: 1.6em;
   flex-shrink: 0;
   width: 2em;
+  /* 不设置 height，避免无文本的 inline-block 在 baseline 对齐时撑高行 */
 }
 
 .md-spacing {
   display: inline-block;
-  height: 1.6em;
   flex-shrink: 0;
   width: 0.5em;
+  /* 不设置 height，避免无文本的 inline-block 在 baseline 对齐时撑高行 */
 }
 
 .md-list-marker {
