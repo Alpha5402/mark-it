@@ -56,46 +56,35 @@ export const renderBlock = (block: BlockModel, expanded: boolean = false): Docum
         markerSpan.classList.add('md-struct-marker')
         markerSpan.textContent = '#'.repeat(depth) + ' '
         div.appendChild(markerSpan)
-
-        const content = document.createElement('div')
-        content.className = `md-inline-content`
-        block.inline?.forEach((inline) => {
-          content.appendChild(renderInlineBlock(inline, expanded))
-        })
-        div.appendChild(content)
-      } else {
-        block.inline?.forEach((inline) => {
-          div.appendChild(renderInlineBlock(inline, expanded))
-        })
       }
+
+      const content = document.createElement('div')
+      content.className = `md-inline-content`
+      block.inline?.forEach((inline) => {
+        content.appendChild(renderInlineBlock(inline, expanded))
+      })
+      div.appendChild(content)
+
       frag.appendChild(div)
       break
     }
     case 'list-item': {
+      const div = document.createElement('div')
+      div.className = `md-list-item`;
+
+      const prefix = document.createElement('span')
+      const style = (block as ListItemBlock).style
+
       if (expanded) {
-        // 展开模式：将 marker 渲染为原始文本
-        const style = (block as ListItemBlock).style
-        const markerSpan = document.createElement('span')
-        markerSpan.classList.add('md-struct-marker')
+        // 展开模式：marker 渲染为原始文本，但保留 md-list-item 包裹结构
+        prefix.classList.add('md-list-marker', 'md-struct-marker')
         if (style.ordered) {
-          markerSpan.textContent = style.order // 例如 "1. "
+          prefix.textContent = style.order // 例如 "1. "
         } else {
-          markerSpan.textContent = '- ' // 无序列表展开为 "- "
+          prefix.textContent = '- ' // 无序列表展开为 "- "
         }
-        frag.appendChild(markerSpan)
-
-        const content = document.createElement('div')
-        content.className = `md-inline-content`
-        block.inline?.forEach((inline) => {
-          content.appendChild(renderInlineBlock(inline, expanded))
-        })
-        frag.appendChild(content)
       } else {
-        const div = document.createElement('div')
-        div.className = `md-list-item`;
-
-        const prefix = document.createElement('span')
-        const style = (block as ListItemBlock).style
+        // 非展开模式：正常渲染
         if (style.ordered) {
           prefix.classList.add('md-list-number')
           prefix.textContent = style.order
@@ -103,16 +92,16 @@ export const renderBlock = (block: BlockModel, expanded: boolean = false): Docum
           prefix.classList.add('md-list-marker')
           prefix.textContent = '•'
         }
-
-        const content = document.createElement('div')
-        content.className = `md-inline-content`
-        block.inline?.forEach((inline) => {
-          content.appendChild(renderInlineBlock(inline, expanded))
-        })
-        div.append(prefix, content)
-
-        frag.appendChild(div);
       }
+
+      const content = document.createElement('div')
+      content.className = `md-inline-content`
+      block.inline?.forEach((inline) => {
+        content.appendChild(renderInlineBlock(inline, expanded))
+      })
+      div.append(prefix, content)
+
+      frag.appendChild(div);
       break
     }
     case 'paragraph': {

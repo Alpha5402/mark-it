@@ -928,7 +928,7 @@ export function resolveDivideRange(
       return
     }
 
-    // 处理 heading（展开模式下包含 md-struct-marker + md-inline-content）
+    // 处理 heading（展开模式下包含 md-struct-marker + md-inline-content，非展开模式下只有 md-inline-content）
     if (el.className.startsWith('md-heading-')) {
       // 遍历 heading 内部的所有子元素
       for (const child of Array.from(el.children)) {
@@ -953,24 +953,6 @@ export function resolveDivideRange(
             const isNotLast = textNode !== lastTextNode
             pushTextSlots(textNode, isNotLast)
           }
-        }
-      }
-      // 收起模式下 heading 没有 md-inline-content，直接遍历文本节点
-      if (!el.querySelector('.md-inline-content')) {
-        const walker = document.createTreeWalker(
-          el,
-          NodeFilter.SHOW_TEXT,
-          null
-        )
-        const textNodes: Text[] = []
-        let node: Text | null
-        while ((node = walker.nextNode() as Text)) {
-          textNodes.push(node)
-        }
-        const lastTextNode = textNodes[textNodes.length - 1]
-        for (const textNode of textNodes) {
-          const isNotLast = textNode !== lastTextNode
-          pushTextSlots(textNode, isNotLast)
         }
       }
       return

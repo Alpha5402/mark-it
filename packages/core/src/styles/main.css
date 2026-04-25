@@ -82,7 +82,7 @@ hr {
   align-items: baseline; /* baseline 对齐，确保结构性标记符和文本对齐 */
   padding: 4px;
   tab-size: 4;
-  line-height: normal;
+  line-height: 1.6; /* 统一行高，避免展开/收起模式切换时行高变化导致抖动 */
 }
 
 .md-origin-block {
@@ -135,7 +135,6 @@ hr {
   flex-shrink: 0;
   width: 2em;
 }
-
 
 .md-spacing {
   display: inline-block;
@@ -318,11 +317,22 @@ hr {
   vertical-align: baseline; /* 确保 baseline 对齐 */
 }
 
-/* 展开模式下 indent 作为 struct-marker 时，宽度由文本内容决定 */
-.md-struct-marker.md-indent,
-.md-struct-marker.md-spacing {
-  width: auto;
+/* 展开模式下 indent 作为 struct-marker 时，保持与非展开模式相同的尺寸 */
+.md-struct-marker.md-indent {
+  width: 2em;
   height: auto;
+  display: inline-block;
+}
+
+.md-struct-marker.md-spacing {
+  width: 0.5em;
+  height: auto;
+  display: inline-block;
+}
+
+/* 展开模式下列表 marker 宽度自适应内容（如 "- "、"1. "） */
+.md-struct-marker.md-list-marker {
+  width: auto;
 }
 
 /* 展开模式下的 block */
