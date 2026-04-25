@@ -56,6 +56,11 @@ export class EventController {
   private inInputTransaction = false
   private pendingMutations: MutationRecord[] = []
 
+  // 记住连续上下移动时的初始 x 坐标，避免光标漂移
+  private stickyX: number | null = null
+  // 标记当前选区变化是否由上下键移动引起，避免 selectionchange 清除 stickyX
+  private isVerticalMove = false
+
   constructor(
     private readonly root: HTMLElement,
     private readonly onAction: (ctx: EditorActionContext) => void
@@ -176,6 +181,9 @@ export class EventController {
     if (this.isComposing) return
     e.preventDefault()
 
+    // 输入操作清除 stickyX
+    this.stickyX = null
+
     // 1. 捕捉动作前的状态
     const beforeSelection = this.captureSelection()
     this.lastSelectionSnapshot = beforeSelection // 更新缓存
@@ -273,13 +281,25 @@ export class EventController {
       // 始终拦截上下键，避免浏览器默认行为在 flex 布局中产生异常
       e.preventDefault()
 
+      // 首次按上下键时记住 x 坐标，连续上下移动时复用，避免光标漂移
+      if (this.stickyX === null) {
+        this.stickyX = caretRect.left
+      }
+
+      // 标记为垂直移动，防止 selectionchange 清除 stickyX
+      this.isVerticalMove = true
+
       const direction = e.key === 'ArrowDown' ? 'down' : 'up'
       this.emit(
         direction === 'down' ? EditorActionType.MoveCursorDown : EditorActionType.MoveCursorUp,
         null,
-        { data: String(caretRect.left) }
+        { data: String(this.stickyX) }
       )
+      return
     }
+
+    // 非上下键操作，清除 stickyX
+    this.stickyX = null
 
     // 示例：拦截 Undo (如果我们要自己做历史记录的话)
     if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
@@ -293,6 +313,14 @@ export class EventController {
 
   private onSelectionChange = () => {
     if (!this.isSelectionInEditor()) return
+
+    // 上下键移动引起的选区变化，跳过 stickyX 清除
+    if (this.isVerticalMove) {
+      this.isVerticalMove = false
+    } else {
+      // 鼠标点击等非上下键操作导致的选区变化，清除 stickyX
+      this.stickyX = null
+    }
 
     const current = this.captureSelection()
     this.emit(EditorActionType.Select, null, {
