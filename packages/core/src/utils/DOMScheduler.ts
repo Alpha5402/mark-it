@@ -40,7 +40,8 @@ export class DOMScheduler {
       const block = this.doc.getBlock(BlockId)
       console.log(block)
       if (!block) return
-      this.dom.updateDOM(block, nextCursorOffset)
+      const prefixOffset = this.doc.prefixOffset(BlockId)
+      this.dom.updateDOM(block, prefixOffset, nextCursorOffset)
     })
   }
 
@@ -53,11 +54,13 @@ export class DOMScheduler {
     if (!result || !origin) return
 
     queueMicrotask(() => {
-      this.dom.updateDOM(origin)
+      const prefixOffset = this.doc.prefixOffset(blockId)
+      this.dom.updateDOM(origin, prefixOffset)
       this.dom.purify()
       this.dom.insertBlock(origin, result)
 
-      this.dom.setCursor(result.id, this.doc.prefixOffset(blockId), 'current')
+      const newPrefixOffset = this.doc.prefixOffset(result.id)
+      this.dom.setCursor(result.id, newPrefixOffset, newPrefixOffset, 'current')
     })
   }
 }

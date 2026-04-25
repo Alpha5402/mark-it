@@ -219,31 +219,47 @@ export class DOMController {
     })
   }
 
-  getCurrentCursorVisualOffset(blockId: string): number | null {
+  getCurrentCursorVisualOffset(blockId: string, prefixOffset: number): number | null {
     const blockEl = this.nodes.get(blockId)
     if (!blockEl) return null
-      const selection = window.getSelection()
-      if (!selection) return null
-      if (!selection.anchorNode) return null
-      if (!blockEl.contains(selection.anchorNode)) return null
-      const unit = resolveDivideRange(blockEl)
-      const node = selection!.anchorNode!
-      let lastMaxOffset = 0
-      for(let i = 0; i < unit.length; i++) {
-        if (node === unit[i].node) {
-          lastMaxOffset = i
-          break
-        }
-      }
+    const selection = window.getSelection()
+    if (!selection) return null
+    if (!selection.anchorNode) return null
+    if (!blockEl.contains(selection.anchorNode)) return null
 
-      return lastMaxOffset + selection!.anchorOffset
+    // 找到 md-inline-content 元素
+    const inlineContent = blockEl.querySelector('.md-inline-content')
+    if (!inlineContent) return null
+
+    // 如果光标不在 inline-content 内，返回 prefixOffset（文本开头）
+    if (!inlineContent.contains(selection.anchorNode)) {
+      return prefixOffset
+    }
+
+    // 遍历 inline-content 中的所有文本节点，计算光标的字符偏移
+    const walker = document.createTreeWalker(
+      inlineContent,
+      NodeFilter.SHOW_TEXT,
+      null
+    )
+
+    let charOffset = 0
+    let textNode: Text | null
+    while ((textNode = walker.nextNode() as Text)) {
+      if (textNode === selection.anchorNode) {
+        return prefixOffset + charOffset + selection.anchorOffset
+      }
+      charOffset += textNode.textContent?.length ?? 0
+    }
+
+    return null
   }
 
-  setCursor(blockId: string, offset: number, direction: 'up' | 'down' | 'current') {
+  setCursor(blockId: string, offset: number, prefixOffset: number, direction: 'up' | 'down' | 'current') {
     const block = this.nodes.get(blockId)
     if (!block) return
     if (direction === 'current') {
-      const range = resolveRangeFromVisualOffset(block, offset)
+      const range = resolveRangeFromSemanticOffset(block, offset, prefixOffset)
       applyRange(range)
     } else {
       const nextBlock = direction === 'down' 
@@ -251,7 +267,7 @@ export class DOMController {
         : findPrevLineBlock(block.parentElement!, block)
 
       if (!nextBlock) return
-      const range = resolveRangeFromVisualOffset(nextBlock, offset)
+      const range = resolveRangeFromSemanticOffset(nextBlock, offset, prefixOffset)
       applyRange(range)
     }
   }
@@ -385,9 +401,9 @@ export class DOMController {
     }
   }
 
-  updateDOM(block: BlockModel, nextCursorOffset?: number) {
+  updateDOM(block: BlockModel, prefixOffset: number, nextCursorOffset?: number) {
     if (!block || !block.inline) return
-    const cursor = this.getCurrentCursorVisualOffset(block.id)
+    const cursor = this.getCurrentCursorVisualOffset(block.id, prefixOffset)
     const blockEl = this.nodes.get(block.id)
     if (!blockEl) return
 
@@ -412,7 +428,7 @@ export class DOMController {
     })
 
     if (cursor && nextCursorOffset) {
-      this.setCursor(block.id, nextCursorOffset, 'current')
+      this.setCursor(block.id, nextCursorOffset, prefixOffset, 'current')
     }
   }
 
@@ -525,33 +541,67 @@ function isLineBlock(el: Element): boolean {
   return el.classList.contains('md-line-block')
 }
 
-function resolveRangeFromVisualOffset(
+/**
+ * 根据语义偏移量在 DOM 中定位光标
+ * 语义偏移 = prefixOffset + 文本内字符偏移
+ * 
+ * 直接在 md-inline-content 中按字符偏移定位，不依赖 resolveDivideRange 的 unit 索引
+ */
+function resolveRangeFromSemanticOffset(
   blockEl: HTMLElement,
-  targetOffset: number
+  semanticOffset: number,
+  prefixOffset: number
 ): Range {
-  // console.log('resolveRangeFromVisualOffset', blockEl, targetOffset)
   const range = document.createRange()
-  const units = resolveDivideRange(blockEl)
-  console.log('units', units)
 
-  // 🧯 fallback
-  if (units.length === 0) {
+  // 找到 md-inline-content
+  const inlineContent = blockEl.querySelector('.md-inline-content')
+  if (!inlineContent) {
+    // fallback：没有 inline-content，设置到 block 开头
     range.setStart(blockEl, 0)
     range.collapse(true)
     return range
   }
 
-  // 🎯 clamp visual offset
-  const index = Math.max(0, Math.min(targetOffset, units.length - 1))
-  console.log('targetOffset', targetOffset)
-  console.log('units.length', units.length)
-  console.log('clamped index:', index)
-  const unit = units[index]
-  console.log('resolved unit:', unit)
+  // 计算文本内偏移
+  const textOffset = Math.max(0, semanticOffset - prefixOffset)
 
-  range.setStart(unit.node, unit.offset)
+  // 遍历 inline-content 中的所有文本节点，找到目标位置
+  const walker = document.createTreeWalker(
+    inlineContent,
+    NodeFilter.SHOW_TEXT,
+    null
+  )
+
+  let accumulated = 0
+  let textNode: Text | null
+  let lastTextNode: Text | null = null
+
+  while ((textNode = walker.nextNode() as Text)) {
+    lastTextNode = textNode
+    const len = textNode.textContent?.length ?? 0
+
+    if (accumulated + len >= textOffset) {
+      // 目标位置在这个文本节点内
+      const localOffset = textOffset - accumulated
+      range.setStart(textNode, Math.min(localOffset, len))
+      range.collapse(true)
+      return range
+    }
+
+    accumulated += len
+  }
+
+  // 如果偏移超出了所有文本，放到最后一个文本节点的末尾
+  if (lastTextNode) {
+    range.setStart(lastTextNode, lastTextNode.textContent?.length ?? 0)
+    range.collapse(true)
+    return range
+  }
+
+  // 最终 fallback
+  range.setStart(inlineContent, 0)
   range.collapse(true)
-  console.log('resolved range:', range)
   return range
 }
 

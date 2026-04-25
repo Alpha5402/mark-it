@@ -5,7 +5,6 @@ import { EditorView } from './EditorView';
 import { EditorActionType, EventController, type EditorActionContext } from './EditorEventController';
 import { BlockModel, BlockVisualState } from '../types';
 import { transform } from '../utils/transformer';
-import { resolveDivideRange } from '../utils/DOMController';
 
 export class Editor {
   view: EditorView
@@ -62,76 +61,37 @@ export class Editor {
 
     if (type === EditorActionType.InsertText || type === EditorActionType.Paste) {
       console.log('Received input request')
-      console.log('selection', selection)
-      console.log(getIdFromBlock(selection!.anchorNode!))
       const block = this.doc.getBlock(getIdFromBlock(selection!.anchorNode!))
       const root = getBlockAnchor(selection!.anchorNode!)
-      console.log(block, root)
       if (!block || !root) return
 
-      const line = Array.from(root.childNodes)
-      if (!line) return
-
-      const unit = resolveDivideRange(root)
-      const node = selection!.anchorNode!
-      let lastMaxOffset = 0
-      for(let i = 0; i < unit.length; i++) {
-        if (node === unit[i].node) {
-          lastMaxOffset = i
-          break
-        }
-      }
-
-      const offset = lastMaxOffset + selection!.anchorOffset
+      const offset = computeSemanticOffset(root, selection!.anchorNode!, selection!.anchorOffset, this.doc.prefixOffset(block.id))
+      if (offset === null) return
       this.scheduler.insertText(block.id, offset, data!, offset + data!.length)
     }
 
     if (type === EditorActionType.CompositionStart) {
       const block = this.doc.getBlock(getIdFromBlock(selection!.anchorNode!))
       const root = getBlockAnchor(selection!.anchorNode!)
-      console.log(block, root)
       if (!block || !root) return
 
-      const unit = resolveDivideRange(root)
-      const node = selection!.anchorNode!
-
-      let base = 0
-      for (let i = 0; i < unit.length; i++) {
-        if (unit[i].node === node) {
-          base = i
-          break
-        }
-      }
+      const offset = computeSemanticOffset(root, selection!.anchorNode!, selection!.anchorOffset, this.doc.prefixOffset(block.id))
+      if (offset === null) return
 
       this.scheduler.markDirty(block.id)
 
       this.compositionContext = {
         blockId: block.id,
-        startOffset: base + selection!.anchorOffset
+        startOffset: offset
       }
       console.log('compositionContext', this.compositionContext)
     }
 
     if (type === EditorActionType.CompositionEnd) {
       const block = this.doc.getBlock(this.compositionContext!.blockId)
-      const node = this.dom.getNodeById(this.compositionContext!.blockId)
-      if (!node) return
-      const root = getBlockAnchor(node)
-      if (!block || !root) return
-      const line = Array.from(root.childNodes)
-      if (!line) return
+      if (!block) return
 
-      const unit = resolveDivideRange(root)
-      let lastMaxOffset = 0
-      for(let i = 0; i < unit.length; i++) {
-        if (node === unit[i].node) {
-          lastMaxOffset = i
-          break
-        }
-      }
-
-      const offset = lastMaxOffset + this.compositionContext!.startOffset
-      console.log(offset + data!.length)
+      const offset = this.compositionContext!.startOffset
       this.scheduler.insertText(block.id, offset, data!, offset + data!.length)
       this.dom.purify()
     }
@@ -139,23 +99,10 @@ export class Editor {
     if (action.type === EditorActionType.InsertLineBreak) {
       const block = this.doc.getBlock(getIdFromBlock(selection!.anchorNode!))
       const root = getBlockAnchor(selection!.anchorNode!)
-      // console.log(block, root)
       if (!block || !root) return
 
-      const line = Array.from(root.childNodes)
-      if (!line) return
-
-      const unit = resolveDivideRange(root)
-      const node = selection!.anchorNode!
-      let lastMaxOffset = 0
-      for(let i = 0; i < unit.length; i++) {
-        if (node === unit[i].node) {
-          lastMaxOffset = i
-          break
-        }
-      }
-
-      const offset = lastMaxOffset + selection!.anchorOffset
+      const offset = computeSemanticOffset(root, selection!.anchorNode!, selection!.anchorOffset, this.doc.prefixOffset(block.id))
+      if (offset === null) return
 
       this.scheduler.handleInsertLineBreak(block.id, offset)
     }
@@ -287,4 +234,47 @@ const getBlockAnchor = (node: Node): HTMLDivElement | null => {
 
 const getIdFromBlock = (node: Node): string => {
   return getBlockAnchor(node)?.dataset.blockId ?? ''
+}
+
+/**
+ * 计算光标在 block 中的语义偏移量
+ * 语义偏移 = prefixOffset + 光标在 md-inline-content 中的字符偏移
+ * 
+ * 这个偏移量与 DocumentController.recoveryOffset 期望的 offset 一致
+ */
+function computeSemanticOffset(
+  blockEl: HTMLElement,
+  anchorNode: Node,
+  anchorOffset: number,
+  prefixOffset: number
+): number | null {
+  // 找到 md-inline-content 元素
+  const inlineContent = blockEl.querySelector('.md-inline-content')
+  if (!inlineContent) return null
+
+  // 确认光标确实在 inline-content 内部
+  if (!inlineContent.contains(anchorNode)) {
+    // 光标可能在 marker 或 indent 上，返回 prefixOffset（即文本开头）
+    return prefixOffset
+  }
+
+  // 遍历 inline-content 中的所有文本节点，计算光标的字符偏移
+  const walker = document.createTreeWalker(
+    inlineContent,
+    NodeFilter.SHOW_TEXT,
+    null
+  )
+
+  let charOffset = 0
+  let textNode: Text | null
+  while ((textNode = walker.nextNode() as Text)) {
+    if (textNode === anchorNode) {
+      // 找到了光标所在的文本节点
+      return prefixOffset + charOffset + anchorOffset
+    }
+    charOffset += textNode.textContent?.length ?? 0
+  }
+
+  // 没找到，返回 null
+  return null
 }
