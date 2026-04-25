@@ -275,27 +275,30 @@ export class Editor {
     const newRawText = rawText.slice(0, rawOffset) + text + rawText.slice(rawOffset)
     console.log('[InsertInMarker] rawText:', JSON.stringify(rawText), '→', JSON.stringify(newRawText), 'at offset:', rawOffset)
 
-    // 4. 全行 reconcile
+    // 4. 计算插入后光标在新原始文本中的位置
+    const newCursorRawOffset = rawOffset + text.length
+
+    // 5. 计算新原始文本中 newCursorRawOffset 对应的纯文本偏移
+    //    这个偏移不受 inlineParse 重新解析的影响
+    const semanticOffset = rawOffsetToPlainTextOffset(newRawText, newCursorRawOffset)
+
+    // 6. 全行 reconcile
     const effect = this.doc.reconcileFromRawText(block.id, newRawText)
     if (!effect) return
 
-    if (effect.kind === 'inline-update') {
-      // 结构不变，重新渲染 inline
-      const updatedBlock = effect.block
-      // 用展开模式重新渲染整个 block
-      this.dom.replaceBlock(block, updatedBlock)
-      // 重新展开
-      this.dom.expandBlock(updatedBlock.id, updatedBlock)
-      // 恢复光标到插入位置之后
-      this.restoreCursorAfterMarkerEdit(updatedBlock, rawOffset + text.length)
-    } else if (effect.kind === 'block-transform') {
-      // 结构变化（如 list-item → paragraph）
+    const targetBlock = effect.kind === 'block-transform' ? effect.to : effect.block
+
+    if (effect.kind === 'block-transform') {
       this.dom.replaceBlock(effect.from, effect.to)
-      // 展开新 block
-      this.dom.expandBlock(effect.to.id, effect.to)
-      // 恢复光标
-      this.restoreCursorAfterMarkerEdit(effect.to, rawOffset + text.length)
     }
+
+    // 7. 强制重置展开状态并重新渲染
+    this.dom.forceResetExpanded()
+    this.dom.renderBlockExpanded(targetBlock)
+
+    // 8. 用语义偏移定位光标
+    const prefixOffset = this.doc.prefixOffset(targetBlock.id)
+    this.dom.setCursor(targetBlock.id, semanticOffset, prefixOffset, 'current')
   }
 
   /**
@@ -314,29 +317,27 @@ export class Editor {
     const newRawText = rawText.slice(0, rawOffset) + text + rawText.slice(rawOffset)
     console.log('[InsertInMarker/IME] rawText:', JSON.stringify(rawText), '→', JSON.stringify(newRawText))
 
-    // 3. 全行 reconcile
+    // 3. 计算语义偏移
+    const newCursorRawOffset = rawOffset + text.length
+    const semanticOffset = rawOffsetToPlainTextOffset(newRawText, newCursorRawOffset)
+
+    // 4. 全行 reconcile
     const effect = this.doc.reconcileFromRawText(block.id, newRawText)
     if (!effect) return
 
-    if (effect.kind === 'inline-update') {
-      const updatedBlock = effect.block
-      this.dom.replaceBlock(block, updatedBlock)
-      this.dom.expandBlock(updatedBlock.id, updatedBlock)
-      this.restoreCursorAfterMarkerEdit(updatedBlock, rawOffset + text.length)
-    } else if (effect.kind === 'block-transform') {
-      this.dom.replaceBlock(effect.from, effect.to)
-      this.dom.expandBlock(effect.to.id, effect.to)
-      this.restoreCursorAfterMarkerEdit(effect.to, rawOffset + text.length)
-    }
-  }
+    const targetBlock = effect.kind === 'block-transform' ? effect.to : effect.block
 
-  /**
-   * 在标识符编辑后恢复光标位置
-   * rawOffset 是在整行原始文本中的偏移
-   */
-  private restoreCursorAfterMarkerEdit(block: BlockModel, rawOffset: number) {
-    // 使用 raw offset 直接在 DOM 中定位光标（遍历所有文本节点，包括标识符）
-    this.dom.setCursorByRawOffset(block.id, rawOffset)
+    if (effect.kind === 'block-transform') {
+      this.dom.replaceBlock(effect.from, effect.to)
+    }
+
+    // 5. 强制重置展开状态并重新渲染
+    this.dom.forceResetExpanded()
+    this.dom.renderBlockExpanded(targetBlock)
+
+    // 6. 用语义偏移定位光标
+    const prefixOffset = this.doc.prefixOffset(targetBlock.id)
+    this.dom.setCursor(targetBlock.id, semanticOffset, prefixOffset, 'current')
   }
 
   handleInput(id: string, blockEl: HTMLDivElement) {
@@ -549,11 +550,111 @@ function detectMarkerContext(anchorNode: Node, anchorOffset: number): MarkerCont
 }
 
 /**
- * 计算光标在整行原始文本中的偏移（包含所有标识符）
+ * 计算原始文本中 rawOffset 对应的"语义偏移"
  * 
- * 遍历 block 内所有文本节点（包括 struct-marker、inline marker、正文），
- * 按 DOM 顺序累加字符偏移，得到光标在"完整原始文本"中的位置。
+ * 语义偏移 = 结构性标记符长度 + rawOffset 之前的纯文本字符数
+ * 
+ * 这个函数对原始文本做一次轻量级解析，识别出 Markdown 标记符和纯文本，
+ * 然后计算 rawOffset 之前有多少个纯文本字符。
+ * 
+ * 注意：结构性标记符（如 "- "、"## "、缩进空格）被视为"语义前缀"，
+ * 它们的长度直接计入语义偏移。
  */
+function rawOffsetToPlainTextOffset(rawText: string, rawOffset: number): number {
+  // 1. 解析结构性标记符
+  let structPrefixLen = 0
+  let contentStart = 0
+
+  // 缩进
+  const indentMatch = rawText.match(/^(\s*)/)
+  if (indentMatch) {
+    const indent = indentMatch[1]
+    structPrefixLen += indent.length
+    contentStart += indent.length
+  }
+
+  // 列表标记符
+  const afterIndent = rawText.slice(contentStart)
+  const listMatch = afterIndent.match(/^[-*+]\s/)
+  const orderedListMatch = afterIndent.match(/^\d+\.\s/)
+  const headingMatch = afterIndent.match(/^#{1,6}\s/)
+
+  if (listMatch) {
+    structPrefixLen += listMatch[0].length
+    contentStart += listMatch[0].length
+  } else if (orderedListMatch) {
+    structPrefixLen += orderedListMatch[0].length
+    contentStart += orderedListMatch[0].length
+  } else if (headingMatch) {
+    structPrefixLen += headingMatch[0].length
+    contentStart += headingMatch[0].length
+  }
+
+  // 如果 rawOffset 在结构性标记符内
+  if (rawOffset <= contentStart) {
+    return rawOffset
+  }
+
+  // 2. 对 inline 内容做轻量级标记符识别
+  const inlineText = rawText.slice(contentStart)
+  const inlineRawOffset = rawOffset - contentStart
+
+  let plainTextCount = 0
+  let i = 0
+
+  while (i < inlineText.length && i < inlineRawOffset) {
+    // 行内代码 `
+    if (inlineText[i] === '`') {
+      i++ // 跳过 `
+      // 找到匹配的 `
+      const end = inlineText.indexOf('`', i)
+      if (end !== -1 && end < inlineRawOffset) {
+        // 整个代码块在 rawOffset 之前
+        plainTextCount += end - i
+        i = end + 1 // 跳过关闭的 `
+        continue
+      } else if (end !== -1) {
+        // rawOffset 在代码块内部
+        plainTextCount += inlineRawOffset - i
+        return structPrefixLen + plainTextCount
+      } else {
+        // 没有匹配的 `，当作普通字符
+        plainTextCount++
+        continue
+      }
+    }
+
+    // ~~ 删除线
+    if (inlineText[i] === '~' && inlineText[i + 1] === '~') {
+      i += 2 // 跳过标记符
+      continue
+    }
+
+    // ** 加粗
+    if (inlineText[i] === '*' && inlineText[i + 1] === '*') {
+      i += 2
+      continue
+    }
+
+    // == 高亮
+    if (inlineText[i] === '=' && inlineText[i + 1] === '=') {
+      i += 2
+      continue
+    }
+
+    // * 或 _ 斜体
+    if (inlineText[i] === '*' || inlineText[i] === '_') {
+      i++
+      continue
+    }
+
+    // 普通字符
+    plainTextCount++
+    i++
+  }
+
+  return structPrefixLen + plainTextCount
+}
 function computeRawOffset(
   blockEl: HTMLElement,
   anchorNode: Node,

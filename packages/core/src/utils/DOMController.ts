@@ -298,6 +298,46 @@ export class DOMController {
    * 根据 raw offset（整行原始文本中的偏移，包含标识符）定位光标
    * 遍历 block 内所有文本节点（按 DOM 顺序），累加字符偏移
    */
+  /**
+   * 强制重置展开状态（不做 DOM 操作，仅清除状态标记）
+   * 用于 handleInsertInMarker 场景，避免 expandBlock 因 id 相同而跳过
+   */
+  forceResetExpanded(): void {
+    this.expandedBlockId = null
+  }
+
+  /**
+   * 直接用展开模式渲染一个 block（不经过 replaceBlock）
+   * 用于标识符内部编辑后的重新渲染
+   */
+  renderBlockExpanded(block: BlockModel): void {
+    const blockEl = this.nodes.get(block.id)
+    if (!blockEl) return
+
+    // 用展开模式渲染
+    const fragment = renderBlock(block, true)
+    const tempWrapper = document.createElement('div')
+    tempWrapper.appendChild(fragment)
+
+    // 替换 blockEl 的子节点
+    blockEl.replaceChildren(...Array.from(tempWrapper.childNodes))
+    blockEl.classList.add('md-block-expanded')
+
+    this.expandedBlockId = block.id
+  }
+
+  /**
+   * 根据 raw offset（整行原始文本中的偏移，包含标识符）定位光标
+   * 
+   * 由于展开模式下 DOM 的文本布局可能与原始文本不一致（每个 inline 段有独立的 prefix/suffix），
+   * 不能简单遍历 DOM 文本节点。需要先在原始文本中定位到具体的 inline 段和字符位置，
+   * 然后在 DOM 中找到对应的文本节点。
+   * 
+   * 策略：遍历 block 内所有文本节点，按 DOM 顺序累加。
+   * 但这里的 rawOffset 是基于 getRawText() 重建的文本，
+   * 而 DOM 是基于 renderBlock(block, true) 渲染的。
+   * 两者的文本内容一致（都是从同一个 model 生成的），所以可以直接遍历。
+   */
   setCursorByRawOffset(blockId: string, rawOffset: number): void {
     const blockEl = this.nodes.get(blockId)
     if (!blockEl) return
