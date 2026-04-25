@@ -937,8 +937,8 @@ type Candidate = { range: Range; rect: DOMRect }
 
 function collectCandidates(blockEl: HTMLElement): Candidate[] {
   const units = resolveDivideRange(blockEl)
-  // 过滤掉 indent/spacing 等纯装饰性元素
-  const editableUnits = units.filter(u => !u.type)
+  // 过滤掉 indent/spacing 等纯装饰性元素，以及 .md-marker 内部的文本节点
+  const editableUnits = units.filter(u => !u.type && !isInsideMarker(u.node))
   const result: Candidate[] = []
   for (const unit of editableUnits) {
     const range = document.createRange()
