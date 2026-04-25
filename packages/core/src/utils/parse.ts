@@ -2,38 +2,162 @@ import { RawLine, BlockModel, InlineModel, INLINE_FLAG, HeadingBlock, ListItemBl
 
 const TAB_WIDTH = 4
 
+/**
+ * 标记符 token，记录在原始文本中的位置和类型
+ */
+type MarkerToken = {
+  pos: number       // 在原始文本中的起始位置
+  len: number       // 标记符长度
+  raw: string       // 标记符原始文本
+  flag: number      // 对应的 INLINE_FLAG
+  paired: boolean   // 是否已配对
+  pairIndex: number // 配对的另一个 token 的索引（-1 表示未配对）
+}
+
 export function inlineParse(input: string): {
   inline: InlineModel[],
   offset: number
 } {
-  if (!input) return { inline: [], offset: 0}
+  if (!input) return { inline: [], offset: 0 }
 
-  const result: InlineModel[] = []
+  // ========== 第一遍：扫描所有标记符位置 ==========
+  const tokens: MarkerToken[] = []
+  // 同时处理链接结构
+  type LinkSpan = { start: number; closeBracket: number; openParen: number; closeParen: number }
+  const links: LinkSpan[] = []
 
   let i = 0
-  let buffer = ''
-  let marks = 0
+  while (i < input.length) {
+    // 行内代码 ` — 特殊处理，代码块内不解析其他标记符
+    if (input[i] === '`') {
+      const end = input.indexOf('`', i + 1)
+      if (end !== -1) {
+        // 代码块作为一个已配对的 token 对
+        const openIdx = tokens.length
+        tokens.push({ pos: i, len: 1, raw: '`', flag: INLINE_FLAG.CODE, paired: true, pairIndex: openIdx + 1 })
+        tokens.push({ pos: end, len: 1, raw: '`', flag: INLINE_FLAG.CODE, paired: true, pairIndex: openIdx })
+        i = end + 1
+        continue
+      }
+      // 没有匹配的 `，当作普通字符
+      i++
+      continue
+    }
+
+    // 链接 [text](url)
+    if (input[i] === '[') {
+      const closeBracket = input.indexOf(']', i + 1)
+      if (closeBracket !== -1 && input[closeBracket + 1] === '(') {
+        const closeParen = input.indexOf(')', closeBracket + 2)
+        if (closeParen !== -1) {
+          links.push({ start: i, closeBracket, openParen: closeBracket + 1, closeParen })
+          i = closeParen + 1
+          continue
+        }
+      }
+      i++
+      continue
+    }
+
+    // 删除线 ~~
+    if (input[i] === '~' && input[i + 1] === '~') {
+      tokens.push({ pos: i, len: 2, raw: '~~', flag: INLINE_FLAG.STRIKE, paired: false, pairIndex: -1 })
+      i += 2
+      continue
+    }
+
+    // 加粗 **（必须在单个 * 之前检查）
+    if (input[i] === '*' && input[i + 1] === '*') {
+      tokens.push({ pos: i, len: 2, raw: '**', flag: INLINE_FLAG.BOLD, paired: false, pairIndex: -1 })
+      i += 2
+      continue
+    }
+
+    // 高亮 ==
+    if (input[i] === '=' && input[i + 1] === '=') {
+      tokens.push({ pos: i, len: 2, raw: '==', flag: INLINE_FLAG.HIGHLIGHT, paired: false, pairIndex: -1 })
+      i += 2
+      continue
+    }
+
+    // 斜体 * 或 _
+    if (input[i] === '*' || input[i] === '_') {
+      tokens.push({ pos: i, len: 1, raw: input[i], flag: INLINE_FLAG.ITALIC, paired: false, pairIndex: -1 })
+      i++
+      continue
+    }
+
+    i++
+  }
+
+  // ========== 第二遍：从左到右两两配对（同类型标记符） ==========
+  // 对每种标记符类型，维护一个"等待配对"的栈
+  // 代码块已经在第一遍中配对了，跳过
+  const waitingStack = new Map<number, number[]>() // flag -> token index stack
+
+  for (let t = 0; t < tokens.length; t++) {
+    const token = tokens[t]
+    if (token.paired) continue // 已配对（如代码块）
+
+    const stack = waitingStack.get(token.flag)
+    if (stack && stack.length > 0) {
+      // 有等待配对的同类型标记符，配对
+      const openIdx = stack.pop()!
+      tokens[openIdx].paired = true
+      tokens[openIdx].pairIndex = t
+      token.paired = true
+      token.pairIndex = openIdx
+    } else {
+      // 没有等待配对的，入栈
+      if (!waitingStack.has(token.flag)) {
+        waitingStack.set(token.flag, [])
+      }
+      waitingStack.get(token.flag)!.push(t)
+    }
+  }
+
+  // ========== 第三遍：根据配对结果生成 inline 段 ==========
+  const result: InlineModel[] = []
   let logicalOffset = 0
 
-  // 跟踪当前活跃的标记符栈，用于记录每个 inline 段的前后标记符
-  // key: INLINE_FLAG 位, value: 标记符字符串
-  const activeMarkers = new Map<number, string>()
+  // 构建一个位置 → token 的映射，方便快速查找
+  const tokenAtPos = new Map<number, { token: MarkerToken; index: number }>()
+  for (let t = 0; t < tokens.length; t++) {
+    tokenAtPos.set(tokens[t].pos, { token: tokens[t], index: t })
+  }
+
+  // 构建一个位置 → link 的映射
+  const linkAtPos = new Map<number, LinkSpan>()
+  for (const link of links) {
+    linkAtPos.set(link.start, link)
+  }
+
+  // 当前活跃的格式标记（已配对的开启标记符）
+  let currentMarks = 0
+  // 活跃标记符栈：记录当前开启的标记符，用于构建 markers
+  const activeFlags: { flag: number; raw: string }[] = []
+
+  let pos = 0
+  let buffer = ''
 
   const flush = () => {
     if (!buffer) return
 
-    // 根据当前 marks 构建 markers 信息
     let markers: { prefix: string; suffix: string } | undefined
-    if (marks !== 0) {
-      const prefix = buildMarkerString(marks, activeMarkers)
-      // suffix 与 prefix 相同（对称标记符）
+    if (currentMarks !== 0 && activeFlags.length > 0) {
+      let prefix = ''
+      for (const af of activeFlags) {
+        if (currentMarks & af.flag) {
+          prefix += af.raw
+        }
+      }
       markers = { prefix, suffix: prefix }
     }
 
     result.push({
       type: 'text',
       text: buffer,
-      marks,
+      marks: currentMarks,
       offset: logicalOffset - buffer.length,
       dirty: false,
       markers
@@ -41,145 +165,95 @@ export function inlineParse(input: string): {
     buffer = ''
   }
 
-  const peek = (n = 0) => input[i + n]
-
-  while (i < input.length) {
-    // 行内代码 `
-    if (peek() === '`') {
+  while (pos < input.length) {
+    // 检查是否是链接起始
+    const link = linkAtPos.get(pos)
+    if (link) {
       flush()
-      const start = ++i
-      const end = input.indexOf('`', start)
-      const text = input.slice(start, end)
+      const linkTextRaw = input.slice(link.start + 1, link.closeBracket)
+      const href = input.slice(link.openParen + 1, link.closeParen)
+      const parseResult = inlineParse(linkTextRaw)
 
-      if (end !== -1) {
-        result.push({
-          type: 'text',
-          text,
-          marks: INLINE_FLAG.CODE,
-          offset: logicalOffset,
-          dirty: false,
-          markers: { prefix: '`', suffix: '`' }
-        })
+      result.push({
+        type: 'link',
+        children: parseResult.inline,
+        href,
+        marks: currentMarks,
+        offset: logicalOffset,
+        dirty: false
+      })
 
-        logicalOffset += text.length
-        i = end + 1
+      logicalOffset += parseResult.offset
+      pos = link.closeParen + 1
+      continue
+    }
+
+    // 检查是否是标记符位置
+    const entry = tokenAtPos.get(pos)
+    if (entry) {
+      const { token } = entry
+
+      if (token.paired) {
+        // 已配对的标记符
+        if (token.flag === INLINE_FLAG.CODE) {
+          // 代码块：找到配对的关闭标记符
+          const closeToken = tokens[token.pairIndex]
+          if (closeToken.pos > token.pos) {
+            // 这是开启标记符
+            flush()
+            const codeText = input.slice(token.pos + token.len, closeToken.pos)
+            result.push({
+              type: 'text',
+              text: codeText,
+              marks: INLINE_FLAG.CODE,
+              offset: logicalOffset,
+              dirty: false,
+              markers: { prefix: '`', suffix: '`' }
+            })
+            logicalOffset += codeText.length
+            pos = closeToken.pos + closeToken.len
+            continue
+          } else {
+            // 这是关闭标记符（不应该单独遇到，跳过）
+            pos += token.len
+            continue
+          }
+        }
+
+        // 非代码标记符
+        const pairToken = tokens[token.pairIndex]
+        if (pairToken.pos > token.pos) {
+          // 这是开启标记符 → flush 当前 buffer，开启新格式
+          flush()
+          currentMarks |= token.flag
+          activeFlags.push({ flag: token.flag, raw: token.raw })
+        } else {
+          // 这是关闭标记符 → flush 当前 buffer，关闭格式
+          flush()
+          currentMarks &= ~token.flag
+          // 从 activeFlags 中移除
+          const idx = activeFlags.findIndex(af => af.flag === token.flag)
+          if (idx !== -1) activeFlags.splice(idx, 1)
+        }
+        pos += token.len
         continue
-      }
-
-      // fallback：当作普通字符
-      buffer += '`'
-      continue
-    }
-
-    // 删除线 ~~
-    if (peek() === '~' && peek(1) === '~') {
-      flush()
-      if (marks & INLINE_FLAG.STRIKE) {
-        activeMarkers.delete(INLINE_FLAG.STRIKE)
       } else {
-        activeMarkers.set(INLINE_FLAG.STRIKE, '~~')
-      }
-      marks ^= INLINE_FLAG.STRIKE
-      i += 2
-      continue
-    }
-
-    // 加粗 **
-    if (peek() === '*' && peek(1) === '*') {
-      flush()
-      if (marks & INLINE_FLAG.BOLD) {
-        activeMarkers.delete(INLINE_FLAG.BOLD)
-      } else {
-        activeMarkers.set(INLINE_FLAG.BOLD, '**')
-      }
-      marks ^= INLINE_FLAG.BOLD
-      i += 2
-      continue
-    }
-
-    if (peek() === '=' && peek(1) === '=') {
-      flush()
-      if (marks & INLINE_FLAG.HIGHLIGHT) {
-        activeMarkers.delete(INLINE_FLAG.HIGHLIGHT)
-      } else {
-        activeMarkers.set(INLINE_FLAG.HIGHLIGHT, '==')
-      }
-      marks ^= INLINE_FLAG.HIGHLIGHT
-      i += 2
-      continue
-    }
-
-    // 斜体 * 或 _
-    if (peek() === '*' || peek() === '_') {
-      flush()
-      const marker = input[i]
-      if (marks & INLINE_FLAG.ITALIC) {
-        activeMarkers.delete(INLINE_FLAG.ITALIC)
-      } else {
-        activeMarkers.set(INLINE_FLAG.ITALIC, marker)
-      }
-      marks ^= INLINE_FLAG.ITALIC
-      i++
-      continue
-    }
-
-    // 链接 [text](url)
-    if (peek() === '[') {
-      const closeBracket = input.indexOf(']', i)
-      const openParen = input[closeBracket + 1] === '('
-      const closeParen = openParen
-        ? input.indexOf(')', closeBracket + 2)
-        : -1
-
-      if (closeBracket !== -1 && openParen && closeParen !== -1) {
-        flush()
-
-        const linkTextRaw = input.slice(i + 1, closeBracket)
-        const href = input.slice(closeBracket + 2, closeParen)
-
-        const parseResult = inlineParse(linkTextRaw) // ⭐ 关键：递归
-        const children = parseResult.inline
-        
-        result.push({
-          type: 'link',
-          children,
-          href,
-          marks,
-          offset: logicalOffset,
-          dirty: false
-        })
-
-        logicalOffset += parseResult.offset
-
-        i = closeParen + 1
+        // 未配对的标记符 → 当作普通文本
+        buffer += token.raw
+        pos += token.len
+        logicalOffset += token.raw.length
         continue
       }
     }
 
     // 普通字符
-    buffer += input[i]
-    i++
+    buffer += input[pos]
+    pos++
     logicalOffset++
   }
 
   flush()
-  return { inline: result, offset: logicalOffset}
-}
-
-/**
- * 根据当前 marks 位和活跃标记符映射，构建标记符字符串
- * 按照嵌套顺序排列：外层标记在前
- */
-function buildMarkerString(marks: number, activeMarkers: Map<number, string>): string {
-  let result = ''
-  // 按照标记符的优先级顺序排列
-  const order = [INLINE_FLAG.BOLD, INLINE_FLAG.ITALIC, INLINE_FLAG.STRIKE, INLINE_FLAG.HIGHLIGHT]
-  for (const flag of order) {
-    if ((marks & flag) && activeMarkers.has(flag)) {
-      result += activeMarkers.get(flag)!
-    }
-  }
-  return result
+  return { inline: result, offset: logicalOffset }
 }
 
 
