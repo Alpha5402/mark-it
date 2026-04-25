@@ -292,3 +292,23 @@ hr {
 .md-marker-expanded {
   /* 保持原有格式样式，不额外添加 */
 }
+
+/* 结构性标记符（indent、list marker、heading marker 展开时） */
+.md-struct-marker {
+  color: #b0b0b0;
+  font-weight: normal;
+  font-style: normal;
+  text-decoration: none;
+  background: none;
+  padding: 0;
+  font-family: 'Maple Mono', monospace;
+  font-size: 0.9em;
+  user-select: text;
+  white-space: pre;
+  flex-shrink: 0;
+}
+
+/* 展开模式下的 block */
+.md-block-expanded {
+  /* 可选：展开时的视觉提示 */
+}

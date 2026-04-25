@@ -34,11 +34,47 @@ export class EditorView {
 
   extractText(blockEl: HTMLDivElement): string {
     const currentBlock = blockEl.closest('.md-line-block') as HTMLDivElement
+    if (!currentBlock) return ''
+
+    // 展开模式下，结构性标记符是文本节点，直接拼接所有文本
+    // 检查是否有 md-struct-marker 元素（展开模式的标志）
+    const structMarkers = currentBlock.querySelectorAll('.md-struct-marker')
+    if (structMarkers.length > 0) {
+      // 展开模式：拼接结构性标记符文本 + inline 内容文本（排除 inline 标记符）
+      let text = ''
+      for (const marker of structMarkers) {
+        text += marker.textContent ?? ''
+      }
+      const inlineContent = currentBlock.querySelector('.md-inline-content')
+      if (inlineContent) {
+        // 遍历 inline-content 中的文本节点，排除 .md-marker 内的文本
+        const walker = document.createTreeWalker(
+          inlineContent,
+          NodeFilter.SHOW_TEXT,
+          null
+        )
+        let textNode: Text | null
+        while ((textNode = walker.nextNode() as Text)) {
+          // 检查是否在 .md-marker 内
+          let inMarker = false
+          let el = textNode.parentElement
+          while (el) {
+            if (el.classList.contains('md-marker')) { inMarker = true; break }
+            if (el.classList.contains('md-inline-content')) break
+            el = el.parentElement
+          }
+          if (!inMarker) {
+            text += textNode.textContent ?? ''
+          }
+        }
+      }
+      return text
+    }
+
     if (!currentBlock.lastElementChild) 
       return ''
 
     const classList = currentBlock.lastElementChild.classList
-    console.log(classList)
 
     if (classList.contains('md-paragraph')) {
       // 直接拼 inline 文本

@@ -2,13 +2,26 @@ import { BlockModel, InlineModel, TextInline, LinkInline, BlockVisualState, Divi
 import { renderBlock, renderInlineBlock } from "./render"
 
 /**
- * 判断一个文本节点是否在 .md-marker 元素内部
+ * 判断一个文本节点是否在 .md-marker 元素内部（inline 标记符如 **、~~）
  */
 function isInsideMarker(node: Node): boolean {
   let el = node.parentElement
   while (el) {
     if (el.classList.contains('md-marker')) return true
     if (el.classList.contains('md-inline-content')) return false
+    el = el.parentElement
+  }
+  return false
+}
+
+/**
+ * 判断一个文本节点是否在 .md-struct-marker 元素内部（结构性标记符如 indent、list marker、heading marker）
+ */
+function isInsideStructMarker(node: Node): boolean {
+  let el = node.parentElement
+  while (el) {
+    if (el.classList.contains('md-struct-marker')) return true
+    if (el.classList.contains('md-line-block')) return false
     el = el.parentElement
   }
   return false
@@ -239,6 +252,11 @@ export class DOMController {
     if (!selection) return null
     if (!selection.anchorNode) return null
     if (!blockEl.contains(selection.anchorNode)) return null
+
+    // 如果光标在结构性标记符内（indent、list marker、heading marker），返回 prefixOffset
+    if (isInsideStructMarker(selection.anchorNode)) {
+      return prefixOffset
+    }
 
     // 找到 md-inline-content 元素
     const inlineContent = blockEl.querySelector('.md-inline-content')
@@ -514,12 +532,6 @@ export class DOMController {
     const blockEl = this.nodes.get(blockId)
     if (!blockEl || !block.inline) return
 
-    // 检查是否有需要展开的标记符
-    const hasMarkers = block.inline.some(
-      inline => inline.type === 'text' && inline.markers && inline.marks !== 0
-    )
-    if (!hasMarkers) return
-
     // 保存光标位置（语义偏移，排除标记符）
     const cursorInfo = this.saveCursorInBlock(blockEl)
 
@@ -582,13 +594,19 @@ export class DOMController {
   }
 
   /**
-   * 保存光标在 block 中的语义位置（排除标记符文本）
+   * 保存光标在 block 中的语义位置（排除标记符文本和结构性标记符文本）
    * 返回 { semanticOffset } 或 null
    */
   private saveCursorInBlock(blockEl: HTMLElement): { semanticOffset: number } | null {
     const selection = window.getSelection()
     if (!selection || !selection.anchorNode || !selection.isCollapsed) return null
     if (!blockEl.contains(selection.anchorNode)) return null
+
+    // 检查光标是否在结构性标记符内（indent、list marker、heading marker）
+    if (isInsideStructMarker(selection.anchorNode)) {
+      // 光标在结构性标记符内，映射到语义偏移 0（文本开头）
+      return { semanticOffset: 0 }
+    }
 
     const inlineContent = blockEl.querySelector('.md-inline-content')
     if (!inlineContent) return null
@@ -607,16 +625,13 @@ export class DOMController {
       const isMarker = isInsideMarker(textNode)
       if (textNode === selection.anchorNode) {
         if (isMarker) {
-          // 光标在标记符内，映射到最近的语义位置
-          // 判断是前缀还是后缀标记符
+          // 光标在 inline 标记符内，映射到最近的语义位置
           const markerEl = textNode.parentElement!
           const expandedSpan = markerEl.parentElement!
           const markers = expandedSpan.querySelectorAll('.md-marker')
           if (markers[0] === markerEl) {
-            // 前缀标记符 → 语义偏移为当前累计值（文本开头）
             return { semanticOffset: charOffset }
           } else {
-            // 后缀标记符 → 语义偏移为当前累计值（文本末尾）
             return { semanticOffset: charOffset }
           }
         }
@@ -631,7 +646,7 @@ export class DOMController {
   }
 
   /**
-   * 在 block 中恢复光标到指定语义偏移位置（跳过标记符文本）
+   * 在 block 中恢复光标到指定语义偏移位置（跳过标记符文本和结构性标记符文本）
    */
   private restoreCursorInBlock(blockEl: HTMLElement, cursorInfo: { semanticOffset: number }): void {
     const inlineContent = blockEl.querySelector('.md-inline-content')
@@ -838,6 +853,15 @@ export function resolveDivideRange(
 
   const children = Array.from(blockEl.children)
   children.forEach((el, index) => {
+    // 展开模式下的结构性标记符（indent、list marker、heading marker）
+    if (el.classList.contains('md-struct-marker')) {
+      const textNode = el.firstChild as Text | null
+      if (textNode) {
+        pushTextSlots(textNode)
+      }
+      return
+    }
+
     if (el.classList.contains('md-indent') || el.classList.contains('md-spacing')) {
       const textNode = el.firstChild as Text | null
       if (textNode) {
@@ -937,8 +961,8 @@ type Candidate = { range: Range; rect: DOMRect }
 
 function collectCandidates(blockEl: HTMLElement): Candidate[] {
   const units = resolveDivideRange(blockEl)
-  // 过滤掉 indent/spacing 等纯装饰性元素，以及 .md-marker 内部的文本节点
-  const editableUnits = units.filter(u => !u.type && !isInsideMarker(u.node))
+  // 过滤掉 indent/spacing 等纯装饰性元素、.md-marker 内部的文本节点、以及 .md-struct-marker 内部的文本节点
+  const editableUnits = units.filter(u => !u.type && !isInsideMarker(u.node) && !isInsideStructMarker(u.node))
   const result: Candidate[] = []
   for (const unit of editableUnits) {
     const range = document.createRange()

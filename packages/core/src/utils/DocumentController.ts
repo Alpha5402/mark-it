@@ -1,8 +1,8 @@
 
-import { BlockModel, InlineModel, ListItemBlock, TextInline } from "../types"
+import { BlockModel, InlineModel, ListItemBlock, HeadingBlock, TextInline } from "../types"
 import { parseLine } from "./parse"
 import { initialTokenize, tokenizeByLine, uid } from "./tokenize"
-import { BlockMatchResult, matchListItem } from "./matcher"
+import { BlockMatchResult, matchListItem, matchHeading } from "./matcher"
 
 export class DocumentController {
   blocks = new Map<string, BlockModel>()
@@ -40,7 +40,7 @@ export class DocumentController {
         result = matchListItem(domText, block as ListItemBlock)
         break
       case 'heading':
-        // result = matchHeading(domText, block)
+        result = matchHeading(domText, block as HeadingBlock)
         break
       default:
         // result = {
@@ -89,6 +89,12 @@ export class DocumentController {
       prefixOffset += listItem.style.ordered 
         ? listItem.style.order.length + 1 
         : 2
+    }
+
+    if (block.type === 'heading') {
+      const heading = block as HeadingBlock
+      // heading marker: n 个 # + 1 个空格
+      prefixOffset += heading.headingDepth + 1
     }
 
     return prefixOffset

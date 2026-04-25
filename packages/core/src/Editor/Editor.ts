@@ -314,6 +314,12 @@ function computeSemanticOffset(
   anchorOffset: number,
   prefixOffset: number
 ): number | null {
+  // 检查光标是否在结构性标记符内（indent、list marker、heading marker）
+  if (isInStructMarkerSpan(anchorNode)) {
+    // 光标在结构性标记符内，返回 prefixOffset（即文本开头）
+    return prefixOffset
+  }
+
   // 找到 md-inline-content 元素
   const inlineContent = blockEl.querySelector('.md-inline-content')
   if (!inlineContent) return null
@@ -366,13 +372,26 @@ function computeSemanticOffset(
 }
 
 /**
- * 判断一个文本节点是否在 .md-marker span 内部
+ * 判断一个文本节点是否在 .md-marker span 内部（inline 标记符如 **、~~）
  */
 function isInMarkerSpan(node: Node): boolean {
   let el = node.parentElement
   while (el) {
     if (el.classList.contains('md-marker')) return true
     if (el.classList.contains('md-inline-content')) return false
+    el = el.parentElement
+  }
+  return false
+}
+
+/**
+ * 判断一个文本节点是否在 .md-struct-marker span 内部（结构性标记符如 indent、list marker、heading marker）
+ */
+function isInStructMarkerSpan(node: Node): boolean {
+  let el = node instanceof Element ? node : node.parentElement
+  while (el) {
+    if (el.classList.contains('md-struct-marker')) return true
+    if (el.classList.contains('md-line-block')) return false
     el = el.parentElement
   }
   return false
