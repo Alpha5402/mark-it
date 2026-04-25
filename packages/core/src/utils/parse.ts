@@ -32,6 +32,12 @@ export function inlineParse(input: string): {
     if (input[i] === '`') {
       const end = input.indexOf('`', i + 1)
       if (end !== -1) {
+        // 检查两个 ` 之间是否有文本内容
+        if (end === i + 1) {
+          // 紧邻的 ``，中间没有文本，当作普通字符
+          i++
+          continue
+        }
         // 代码块作为一个已配对的 token 对
         const openIdx = tokens.length
         tokens.push({ pos: i, len: 1, raw: '`', flag: INLINE_FLAG.CODE, paired: true, pairIndex: openIdx + 1 })
@@ -101,8 +107,25 @@ export function inlineParse(input: string): {
 
     const stack = waitingStack.get(token.flag)
     if (stack && stack.length > 0) {
-      // 有等待配对的同类型标记符，配对
-      const openIdx = stack.pop()!
+      // 有等待配对的同类型标记符
+      // 检查两个标记符之间是否有文本内容
+      const openIdx = stack[stack.length - 1]
+      const openToken = tokens[openIdx]
+      const openEnd = openToken.pos + openToken.len  // 开启标记符的结束位置
+      const closeStart = token.pos                    // 关闭标记符的起始位置
+
+      if (openEnd >= closeStart) {
+        // 两个标记符之间没有任何文本（紧邻或重叠），不配对
+        // 将当前 token 也入栈（替换掉之前的，因为之前的已经无法配对了）
+        // 弹出旧的，两个都作为未配对
+        stack.pop()
+        // 不入栈当前 token，因为它也无法与后续配对形成有效结构
+        // （两个紧邻的同类标记符都退化为纯文本）
+        continue
+      }
+
+      // 中间有文本，正常配对
+      stack.pop()
       tokens[openIdx].paired = true
       tokens[openIdx].pairIndex = t
       token.paired = true
