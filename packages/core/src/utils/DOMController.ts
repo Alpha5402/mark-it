@@ -1,6 +1,19 @@
 import { BlockModel, InlineModel, TextInline, LinkInline, BlockVisualState, DivideUnit } from "../types"
 import { renderBlock, renderInlineBlock } from "./render"
 
+/**
+ * 判断一个文本节点是否在 .md-marker 元素内部
+ */
+function isInsideMarker(node: Node): boolean {
+  let el = node.parentElement
+  while (el) {
+    if (el.classList.contains('md-marker')) return true
+    if (el.classList.contains('md-inline-content')) return false
+    el = el.parentElement
+  }
+  return false
+}
+
 export class DOMController {
   private nodes = new Map<string, HTMLDivElement>()
   private highLightedBlocks = new Set<HTMLElement>()
@@ -237,6 +250,7 @@ export class DOMController {
     }
 
     // 遍历 inline-content 中的所有文本节点，计算光标的字符偏移
+    // 跳过 .md-marker 中的文本节点
     const walker = document.createTreeWalker(
       inlineContent,
       NodeFilter.SHOW_TEXT,
@@ -246,6 +260,13 @@ export class DOMController {
     let charOffset = 0
     let textNode: Text | null
     while ((textNode = walker.nextNode() as Text)) {
+      if (isInsideMarker(textNode)) {
+        if (textNode === selection.anchorNode) {
+          // 光标在标记符内，返回当前累积偏移
+          return prefixOffset + charOffset
+        }
+        continue
+      }
       if (textNode === selection.anchorNode) {
         return prefixOffset + charOffset + selection.anchorOffset
       }
@@ -410,6 +431,9 @@ export class DOMController {
     const inlineRoot = blockEl.querySelector('.md-inline-content')
     if (!inlineRoot) return
 
+    // 判断当前 block 是否处于展开状态
+    const isExpanded = this.expandedBlockId === block.id
+
     // ⚠️ 假设 inlineRoot.childNodes 与 block.inline 一一对应
     // （这是你们当前架构下合理的前提）
     const domChildren = Array.from(inlineRoot.childNodes)
@@ -420,7 +444,7 @@ export class DOMController {
       const oldNode = domChildren[index]
       if (!oldNode) return
 
-      const newNode = renderInlineBlock(inline)
+      const newNode = renderInlineBlock(inline, isExpanded)
 
       inlineRoot.replaceChild(newNode, oldNode)
 
@@ -462,6 +486,187 @@ export class DOMController {
       parent.insertBefore(wrapper, el.nextSibling)
     } else {
       parent.appendChild(wrapper)
+    }
+  }
+
+  // ========== Block 级别标记符展开/收起 ==========
+
+  // 当前展开的 block ID
+  private expandedBlockId: string | null = null
+
+  /**
+   * 展开指定 block 的所有标记符
+   * 用展开模式重新渲染整个 block 的 inline 内容
+   */
+  expandBlock(blockId: string, block: BlockModel): void {
+    // 如果已经展开了同一个 block，不重复操作
+    if (this.expandedBlockId === blockId) return
+
+    // 先收起之前展开的 block
+    this.collapseBlock()
+
+    const blockEl = this.nodes.get(blockId)
+    if (!blockEl || !block.inline) return
+
+    // 检查是否有需要展开的标记符
+    const hasMarkers = block.inline.some(
+      inline => inline.type === 'text' && inline.markers && inline.marks !== 0
+    )
+    if (!hasMarkers) return
+
+    // 保存光标位置（语义偏移，排除标记符）
+    const cursorInfo = this.saveCursorInBlock(blockEl)
+
+    // 用展开模式重新渲染整个 block
+    const fragment = renderBlock(block, true)
+    const tempWrapper = document.createElement('div')
+    tempWrapper.appendChild(fragment)
+
+    // 替换 blockEl 的子节点
+    blockEl.replaceChildren(...Array.from(tempWrapper.childNodes))
+    blockEl.classList.add('md-block-expanded')
+
+    this.expandedBlockId = blockId
+
+    // 恢复光标位置
+    if (cursorInfo) {
+      this.restoreCursorInBlock(blockEl, cursorInfo)
+    }
+  }
+
+  /**
+   * 收起当前展开的 block，恢复为正常渲染
+   */
+  collapseBlock(collapsingBlock?: BlockModel): void {
+    if (!this.expandedBlockId) return
+
+    const blockId = this.expandedBlockId
+    const blockEl = this.nodes.get(blockId)
+    if (!blockEl) {
+      this.expandedBlockId = null
+      return
+    }
+
+    // 保存光标位置（语义偏移，排除标记符）
+    const cursorInfo = this.saveCursorInBlock(blockEl)
+
+    // 用正常模式重新渲染
+    // 如果调用方提供了 block model，使用它；否则不恢复（由调用方负责）
+    if (collapsingBlock) {
+      const fragment = renderBlock(collapsingBlock, false)
+      const tempWrapper = document.createElement('div')
+      tempWrapper.appendChild(fragment)
+      blockEl.replaceChildren(...Array.from(tempWrapper.childNodes))
+    }
+
+    blockEl.classList.remove('md-block-expanded')
+    this.expandedBlockId = null
+
+    // 恢复光标位置
+    if (cursorInfo && collapsingBlock) {
+      this.restoreCursorInBlock(blockEl, cursorInfo)
+    }
+  }
+
+  /**
+   * 获取当前展开的 block ID
+   */
+  getExpandedBlockId(): string | null {
+    return this.expandedBlockId
+  }
+
+  /**
+   * 保存光标在 block 中的语义位置（排除标记符文本）
+   * 返回 { semanticOffset } 或 null
+   */
+  private saveCursorInBlock(blockEl: HTMLElement): { semanticOffset: number } | null {
+    const selection = window.getSelection()
+    if (!selection || !selection.anchorNode || !selection.isCollapsed) return null
+    if (!blockEl.contains(selection.anchorNode)) return null
+
+    const inlineContent = blockEl.querySelector('.md-inline-content')
+    if (!inlineContent) return null
+    if (!inlineContent.contains(selection.anchorNode)) return null
+
+    // 遍历 inline-content 中的所有文本节点，跳过 .md-marker 中的文本
+    let charOffset = 0
+    const walker = document.createTreeWalker(
+      inlineContent,
+      NodeFilter.SHOW_TEXT,
+      null
+    )
+
+    let textNode: Text | null
+    while ((textNode = walker.nextNode() as Text)) {
+      const isMarker = isInsideMarker(textNode)
+      if (textNode === selection.anchorNode) {
+        if (isMarker) {
+          // 光标在标记符内，映射到最近的语义位置
+          // 判断是前缀还是后缀标记符
+          const markerEl = textNode.parentElement!
+          const expandedSpan = markerEl.parentElement!
+          const markers = expandedSpan.querySelectorAll('.md-marker')
+          if (markers[0] === markerEl) {
+            // 前缀标记符 → 语义偏移为当前累计值（文本开头）
+            return { semanticOffset: charOffset }
+          } else {
+            // 后缀标记符 → 语义偏移为当前累计值（文本末尾）
+            return { semanticOffset: charOffset }
+          }
+        }
+        return { semanticOffset: charOffset + selection.anchorOffset }
+      }
+      if (!isMarker) {
+        charOffset += textNode.textContent?.length ?? 0
+      }
+    }
+
+    return null
+  }
+
+  /**
+   * 在 block 中恢复光标到指定语义偏移位置（跳过标记符文本）
+   */
+  private restoreCursorInBlock(blockEl: HTMLElement, cursorInfo: { semanticOffset: number }): void {
+    const inlineContent = blockEl.querySelector('.md-inline-content')
+    if (!inlineContent) return
+
+    const walker = document.createTreeWalker(
+      inlineContent,
+      NodeFilter.SHOW_TEXT,
+      null
+    )
+
+    let accumulated = 0
+    let textNode: Text | null
+    while ((textNode = walker.nextNode() as Text)) {
+      if (isInsideMarker(textNode)) continue
+
+      const len = textNode.textContent?.length ?? 0
+      if (accumulated + len >= cursorInfo.semanticOffset) {
+        const localOffset = cursorInfo.semanticOffset - accumulated
+        const range = document.createRange()
+        range.setStart(textNode, Math.min(localOffset, len))
+        range.collapse(true)
+        applyRange(range)
+        return
+      }
+      accumulated += len
+    }
+
+    // fallback：放到最后一个非标记符文本节点的末尾
+    const allTextNodes: Text[] = []
+    const walker2 = document.createTreeWalker(inlineContent, NodeFilter.SHOW_TEXT, null)
+    let tn: Text | null
+    while ((tn = walker2.nextNode() as Text)) {
+      if (!isInsideMarker(tn)) allTextNodes.push(tn)
+    }
+    if (allTextNodes.length > 0) {
+      const last = allTextNodes[allTextNodes.length - 1]
+      const range = document.createRange()
+      range.setStart(last, last.textContent?.length ?? 0)
+      range.collapse(true)
+      applyRange(range)
     }
   }
 
@@ -546,6 +751,7 @@ function isLineBlock(el: Element): boolean {
  * 语义偏移 = prefixOffset + 文本内字符偏移
  * 
  * 直接在 md-inline-content 中按字符偏移定位，不依赖 resolveDivideRange 的 unit 索引
+ * 跳过 .md-marker 中的文本节点
  */
 function resolveRangeFromSemanticOffset(
   blockEl: HTMLElement,
@@ -567,6 +773,7 @@ function resolveRangeFromSemanticOffset(
   const textOffset = Math.max(0, semanticOffset - prefixOffset)
 
   // 遍历 inline-content 中的所有文本节点，找到目标位置
+  // 跳过 .md-marker 中的文本节点
   const walker = document.createTreeWalker(
     inlineContent,
     NodeFilter.SHOW_TEXT,
@@ -578,6 +785,8 @@ function resolveRangeFromSemanticOffset(
   let lastTextNode: Text | null = null
 
   while ((textNode = walker.nextNode() as Text)) {
+    if (isInsideMarker(textNode)) continue
+
     lastTextNode = textNode
     const len = textNode.textContent?.length ?? 0
 

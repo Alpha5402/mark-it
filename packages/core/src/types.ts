@@ -27,6 +27,7 @@ export type TextInline = {
   marks: number
   offset: number
   dirty: boolean
+  markers?: { prefix: string; suffix: string }  // 原始 Markdown 标记符，如 { prefix: '**', suffix: '**' }
 }
 
 export type LinkInline = {

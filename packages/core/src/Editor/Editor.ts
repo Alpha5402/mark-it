@@ -149,6 +149,34 @@ export class Editor {
     }
 
     console.groupEnd()
+
+    // ========== Block 级别标记符展开/收起逻辑 ==========
+    // 当光标进入某个 Block 时，展开该 Block 的所有标记符
+    // 当光标离开时，收起
+    if (selection && selection.anchorNode) {
+      const currentBlockId = getIdFromBlock(selection.anchorNode)
+      const expandedBlockId = this.dom.getExpandedBlockId()
+
+      if (currentBlockId && currentBlockId !== expandedBlockId) {
+        // 光标进入了新的 block，收起旧的，展开新的
+        if (expandedBlockId) {
+          const oldBlock = this.doc.getBlock(expandedBlockId)
+          if (oldBlock) {
+            this.dom.collapseBlock(oldBlock)
+          }
+        }
+        const newBlock = this.doc.getBlock(currentBlockId)
+        if (newBlock) {
+          this.dom.expandBlock(currentBlockId, newBlock)
+        }
+      } else if (!currentBlockId && expandedBlockId) {
+        // 光标离开了所有 block
+        const oldBlock = this.doc.getBlock(expandedBlockId)
+        if (oldBlock) {
+          this.dom.collapseBlock(oldBlock)
+        }
+      }
+    }
   }
 
     
@@ -238,7 +266,7 @@ const getIdFromBlock = (node: Node): string => {
 
 /**
  * 计算光标在 block 中的语义偏移量
- * 语义偏移 = prefixOffset + 光标在 md-inline-content 中的字符偏移
+ * 语义偏移 = prefixOffset + 光标在 md-inline-content 中的字符偏移（排除标记符文本）
  * 
  * 这个偏移量与 DocumentController.recoveryOffset 期望的 offset 一致
  */
@@ -259,6 +287,7 @@ function computeSemanticOffset(
   }
 
   // 遍历 inline-content 中的所有文本节点，计算光标的字符偏移
+  // 跳过 .md-marker 中的文本节点
   const walker = document.createTreeWalker(
     inlineContent,
     NodeFilter.SHOW_TEXT,
@@ -268,13 +297,45 @@ function computeSemanticOffset(
   let charOffset = 0
   let textNode: Text | null
   while ((textNode = walker.nextNode() as Text)) {
+    const inMarker = isInMarkerSpan(textNode)
+    
     if (textNode === anchorNode) {
+      if (inMarker) {
+        // 光标在标记符文本中，映射到最近的语义位置
+        // 判断是前缀还是后缀标记符
+        const markerEl = textNode.parentElement!
+        const expandedSpan = markerEl.parentElement!
+        const markers = expandedSpan.querySelectorAll('.md-marker')
+        if (markers[0] === markerEl) {
+          // 前缀标记符 → 语义偏移为当前累积值（文本开头）
+          return prefixOffset + charOffset
+        } else {
+          // 后缀标记符 → 语义偏移为当前累积值（文本末尾）
+          return prefixOffset + charOffset
+        }
+      }
       // 找到了光标所在的文本节点
       return prefixOffset + charOffset + anchorOffset
     }
-    charOffset += textNode.textContent?.length ?? 0
+    
+    if (!inMarker) {
+      charOffset += textNode.textContent?.length ?? 0
+    }
   }
 
   // 没找到，返回 null
   return null
+}
+
+/**
+ * 判断一个文本节点是否在 .md-marker span 内部
+ */
+function isInMarkerSpan(node: Node): boolean {
+  let el = node.parentElement
+  while (el) {
+    if (el.classList.contains('md-marker')) return true
+    if (el.classList.contains('md-inline-content')) return false
+    el = el.parentElement
+  }
+  return false
 }

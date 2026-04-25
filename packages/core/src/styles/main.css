@@ -272,3 +272,23 @@ hr {
   border-radius: 4px;
   transition: background-color 0.5s ease;
 }
+
+/* ========== 标记符回显样式 ========== */
+
+/* 标记符文本（如 **、~~、==、*、_、`） */
+.md-marker {
+  color: #b0b0b0;
+  font-weight: normal;
+  font-style: normal;
+  text-decoration: none;
+  background: none;
+  padding: 0;
+  font-family: 'Maple Mono', monospace;
+  font-size: 0.9em;
+  user-select: text;
+}
+
+/* 展开状态的 inline 容器 */
+.md-marker-expanded {
+  /* 保持原有格式样式，不额外添加 */
+}

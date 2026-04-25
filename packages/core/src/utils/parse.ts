@@ -15,14 +15,28 @@ export function inlineParse(input: string): {
   let marks = 0
   let logicalOffset = 0
 
+  // 跟踪当前活跃的标记符栈，用于记录每个 inline 段的前后标记符
+  // key: INLINE_FLAG 位, value: 标记符字符串
+  const activeMarkers = new Map<number, string>()
+
   const flush = () => {
     if (!buffer) return
+
+    // 根据当前 marks 构建 markers 信息
+    let markers: { prefix: string; suffix: string } | undefined
+    if (marks !== 0) {
+      const prefix = buildMarkerString(marks, activeMarkers)
+      // suffix 与 prefix 相同（对称标记符）
+      markers = { prefix, suffix: prefix }
+    }
+
     result.push({
       type: 'text',
       text: buffer,
       marks,
       offset: logicalOffset - buffer.length,
-      dirty: false
+      dirty: false,
+      markers
     })
     buffer = ''
   }
@@ -43,7 +57,8 @@ export function inlineParse(input: string): {
           text,
           marks: INLINE_FLAG.CODE,
           offset: logicalOffset,
-          dirty: false
+          dirty: false,
+          markers: { prefix: '`', suffix: '`' }
         })
 
         logicalOffset += text.length
@@ -59,6 +74,11 @@ export function inlineParse(input: string): {
     // 删除线 ~~
     if (peek() === '~' && peek(1) === '~') {
       flush()
+      if (marks & INLINE_FLAG.STRIKE) {
+        activeMarkers.delete(INLINE_FLAG.STRIKE)
+      } else {
+        activeMarkers.set(INLINE_FLAG.STRIKE, '~~')
+      }
       marks ^= INLINE_FLAG.STRIKE
       i += 2
       continue
@@ -67,14 +87,23 @@ export function inlineParse(input: string): {
     // 加粗 **
     if (peek() === '*' && peek(1) === '*') {
       flush()
+      if (marks & INLINE_FLAG.BOLD) {
+        activeMarkers.delete(INLINE_FLAG.BOLD)
+      } else {
+        activeMarkers.set(INLINE_FLAG.BOLD, '**')
+      }
       marks ^= INLINE_FLAG.BOLD
       i += 2
       continue
     }
 
-
     if (peek() === '=' && peek(1) === '=') {
       flush()
+      if (marks & INLINE_FLAG.HIGHLIGHT) {
+        activeMarkers.delete(INLINE_FLAG.HIGHLIGHT)
+      } else {
+        activeMarkers.set(INLINE_FLAG.HIGHLIGHT, '==')
+      }
       marks ^= INLINE_FLAG.HIGHLIGHT
       i += 2
       continue
@@ -83,6 +112,12 @@ export function inlineParse(input: string): {
     // 斜体 * 或 _
     if (peek() === '*' || peek() === '_') {
       flush()
+      const marker = input[i]
+      if (marks & INLINE_FLAG.ITALIC) {
+        activeMarkers.delete(INLINE_FLAG.ITALIC)
+      } else {
+        activeMarkers.set(INLINE_FLAG.ITALIC, marker)
+      }
       marks ^= INLINE_FLAG.ITALIC
       i++
       continue
@@ -129,6 +164,22 @@ export function inlineParse(input: string): {
 
   flush()
   return { inline: result, offset: logicalOffset}
+}
+
+/**
+ * 根据当前 marks 位和活跃标记符映射，构建标记符字符串
+ * 按照嵌套顺序排列：外层标记在前
+ */
+function buildMarkerString(marks: number, activeMarkers: Map<number, string>): string {
+  let result = ''
+  // 按照标记符的优先级顺序排列
+  const order = [INLINE_FLAG.BOLD, INLINE_FLAG.ITALIC, INLINE_FLAG.STRIKE, INLINE_FLAG.HIGHLIGHT]
+  for (const flag of order) {
+    if ((marks & flag) && activeMarkers.has(flag)) {
+      result += activeMarkers.get(flag)!
+    }
+  }
+  return result
 }
 
 
