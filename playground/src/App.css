@@ -120,5 +120,4 @@ body, html, #root {
   /* 为了美观，加个阴影，更有“纸张”的感觉 */
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   min-height: 1200px; /* 纸张最小高度 */
-  user-select: none;
 }

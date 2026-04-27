@@ -18,6 +18,14 @@ export class DocumentController {
   getBlocks = () => this.blocks
   getBlock = (id: string) => this.blocks.get(id)
 
+  /**
+   * 从快照恢复所有 blocks（用于 Undo/Redo）
+   * @param entries 快照中的 [id, block][] 数组
+   */
+  restoreFromSnapshot(entries: [string, BlockModel][]): void {
+    this.blocks = new Map(entries)
+  }
+
   updateBlock = (id: string, line: string): BlockModel => {
     const raw = tokenizeByLine(line, id)
     const parsed = parseLine(raw)
@@ -261,6 +269,59 @@ export class DocumentController {
       block.inline[i].offset += delta
       block.inline[i].dirty = true
     }
+  }
+
+  /**
+   * 在指定偏移处删除一个字符（向后删除，即 Backspace）
+   * 返回删除后需要定位的光标偏移量，或 null 表示需要跨 block 合并
+   */
+  deleteText(blockId: string, offset: number): { newOffset: number } | null {
+    const block = this.getBlock(blockId)
+    if (!block || !block.inline) return null
+
+    const prefixOffset = this.prefixOffset(blockId)
+    
+    // 如果光标在文本开头（prefixOffset 处），需要跨 block 合并
+    if (offset <= prefixOffset) {
+      return null
+    }
+
+    const result = this.recoveryOffset(blockId, offset)
+    if (!result) return null
+
+    const { target, targetIndex, insertPos } = result
+
+    if (insertPos <= 0) {
+      // 在该 inline 段的开头，需要检查是否有前一个 inline 段
+      if (targetIndex > 0) {
+        const prevInline = block.inline[targetIndex - 1]
+        if (prevInline.type === 'text' && prevInline.text.length > 0) {
+          prevInline.text = prevInline.text.slice(0, -1)
+          prevInline.dirty = true
+          // 更新后续 inline 的 offset
+          for (let i = targetIndex; i < block.inline.length; i++) {
+            block.inline[i].offset -= 1
+            block.inline[i].dirty = true
+          }
+          return { newOffset: offset - 1 }
+        }
+      }
+      return null
+    }
+
+    // 正常删除：在当前 inline 段内删除一个字符
+    target.text = target.text.slice(0, insertPos - 1) + target.text.slice(insertPos)
+    target.dirty = true
+
+    // 更新后续 inline 的 offset
+    if (block.inline) {
+      for (let i = targetIndex + 1; i < block.inline.length; i++) {
+        block.inline[i].offset -= 1
+        block.inline[i].dirty = true
+      }
+    }
+
+    return { newOffset: offset - 1 }
   }
 
   splitBlock(BlockId: string, offset: number) {

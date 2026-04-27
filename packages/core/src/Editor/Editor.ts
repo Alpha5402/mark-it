@@ -1,20 +1,23 @@
 import { DocumentController } from '../utils/DocumentController';
 import { DOMController } from '../utils/DOMController';
 import { DOMScheduler } from '../utils/DOMScheduler';
+import { HistoryManager, type CursorInfo } from '../utils/HistoryManager';
 import { EditorView } from './EditorView';
-import { EditorActionType, EventController, type EditorActionContext } from './EditorEventController';
+import { EditorActionType, EventController, type EditorActionContext, type SelectionSnapshot } from './EditorEventController';
 import { BlockModel, BlockVisualState } from '../types';
-import { transform } from '../utils/transformer';
 
 export class Editor {
   view: EditorView
   doc: DocumentController
   dom: DOMController
   scheduler: DOMScheduler
+  history: HistoryManager
   private onChange?: (content: string) => void;
   isHandlingDelete: boolean = false
   controller: EventController
   private compositionContext: { blockId: string, startOffset: number, isInMarker: boolean } | null = null
+  /** Undo/Redo 后跳过紧随的 SelectionChange 事件，防止展开/收起闪烁 */
+  private skipNextSelectionAction: boolean = false
 
   constructor(
     previewContainer: HTMLDivElement,
@@ -24,6 +27,7 @@ export class Editor {
     this.view = new EditorView(previewContainer, documentTitle)
 
     this.doc = new DocumentController(initialContent)
+    this.history = new HistoryManager()
 
     const blocks = Array.from(this.doc.getBlocks().values())
     this.dom = new DOMController(this.view.area, blocks)
@@ -32,6 +36,9 @@ export class Editor {
     // 这里只做分发，不直接改 DOM
       this.handleEditorAction(action)
     )
+
+    // 保存初始状态作为第一个快照
+    this.history.pushSnapshot(this.doc.blocks)
   }
 
   handleEditorAction(action: EditorActionContext) {
@@ -43,6 +50,66 @@ export class Editor {
       nativeEvent,
       timestamp
     } = action
+
+    // ========== Undo / Redo 处理 ==========
+    if (type === EditorActionType.Undo || type === EditorActionType.Redo) {
+      // 1. 获取当前光标位置信息
+      const currentCursor = this.getCurrentCursorInfo(selection)
+
+      // 2. 执行 Undo/Redo
+      const snapshot = type === EditorActionType.Undo
+        ? this.history.undo(this.doc.blocks, currentCursor)
+        : this.history.redo(this.doc.blocks, currentCursor)
+
+      if (snapshot) {
+        // 3. 恢复 blocks 状态
+        this.doc.restoreFromSnapshot(snapshot.blocks)
+        const blocks = Array.from(this.doc.getBlocks().values())
+        this.dom.fullRebuild(blocks)
+
+        // 4. 恢复光标位置并高亮 Block
+        if (snapshot.cursor) {
+          const { blockId, offset, isRawOffset } = snapshot.cursor
+          const block = this.doc.getBlock(blockId)
+          if (block) {
+            // 展开目标 block
+            this.dom.expandBlock(blockId, block)
+
+            // 根据偏移量类型选择恢复方式
+            if (isRawOffset) {
+              // 展开模式下保存的 raw offset，用 setCursorByRawOffset 恢复
+              this.dom.setCursorByRawOffset(blockId, offset)
+            } else {
+              // 非展开模式下保存的 semantic offset，用 setCursor 恢复
+              const prefixOffset = this.doc.prefixOffset(blockId)
+              this.dom.setCursor(blockId, offset, prefixOffset, 'current')
+            }
+
+            // 高亮 block
+            this.dom.clearHighlight()
+            this.scheduler.highlightBlock(blockId, BlockVisualState.active)
+          }
+        }
+
+        // 5. 设置标志位，跳过紧随的 SelectionChange 引起的展开/收起
+        this.skipNextSelectionAction = true
+      }
+      return
+    }
+
+    // ========== 修改操作前保存快照（用于 Undo） ==========
+    const isMutatingAction = (
+      type === EditorActionType.InsertText ||
+      type === EditorActionType.Paste ||
+      type === EditorActionType.DeleteBackward ||
+      type === EditorActionType.DeleteForward ||
+      type === EditorActionType.InsertLineBreak ||
+      type === EditorActionType.CompositionEnd
+    )
+    if (isMutatingAction) {
+      const cursorInfo = this.getCurrentCursorInfo(selection)
+      this.history.pushSnapshot(this.doc.blocks, cursorInfo)
+    }
 
     if (type === EditorActionType.MoveCursorDown) {
       const block = this.doc.getBlock(getIdFromBlock(selection!.anchorNode!))
@@ -98,7 +165,6 @@ export class Editor {
     }
 
     if (type === EditorActionType.InsertText || type === EditorActionType.Paste) {
-      console.log('Received input request')
       const block = this.doc.getBlock(getIdFromBlock(selection!.anchorNode!))
       const root = getBlockAnchor(selection!.anchorNode!)
       if (!block || !root) return
@@ -149,7 +215,6 @@ export class Editor {
           isInMarker: false
         }
       }
-      console.log('compositionContext', this.compositionContext)
     }
 
     if (type === EditorActionType.CompositionEnd) {
@@ -170,6 +235,66 @@ export class Editor {
       this.dom.purify()
     }
 
+    if (type === EditorActionType.DeleteBackward || type === EditorActionType.DeleteForward) {
+      const block = this.doc.getBlock(getIdFromBlock(selection!.anchorNode!))
+      const root = getBlockAnchor(selection!.anchorNode!)
+      if (!block || !root) return
+
+      const isExpanded = this.dom.getExpandedBlockId() === block.id
+
+      if (isExpanded) {
+        // 展开模式：使用 raw text 方式删除
+        const rawText = this.doc.getRawText(block.id)
+        const rawOffset = computeRawOffset(root, selection!.anchorNode!, selection!.anchorOffset)
+        if (rawOffset === null) return
+
+        let newRawText: string
+        let newCursorRawOffset: number
+
+        if (type === EditorActionType.DeleteBackward) {
+          if (rawOffset <= 0) return
+          newRawText = rawText.slice(0, rawOffset - 1) + rawText.slice(rawOffset)
+          newCursorRawOffset = rawOffset - 1
+        } else {
+          // DeleteForward
+          if (rawOffset >= rawText.length) return
+          newRawText = rawText.slice(0, rawOffset) + rawText.slice(rawOffset + 1)
+          newCursorRawOffset = rawOffset
+        }
+
+        // 如果删除后为空，转为 blank block
+        if (newRawText.trim() === '') {
+          const blankBlock = { id: block.id, type: 'blank' as const }
+          this.doc.blocks.set(block.id, blankBlock)
+          this.dom.replaceBlock(block, blankBlock)
+          return
+        }
+
+        const effect = this.doc.reconcileFromRawText(block.id, newRawText)
+        if (!effect) return
+
+        const targetBlock = effect.kind === 'block-transform' ? effect.to : effect.block
+
+        if (effect.kind === 'block-transform') {
+          this.dom.replaceBlock(effect.from, effect.to)
+        }
+
+        this.dom.forceResetExpanded()
+        this.dom.renderBlockExpanded(targetBlock)
+        this.dom.setCursorByRawOffset(targetBlock.id, newCursorRawOffset)
+        return
+      } else {
+        // 非展开模式：通过语义偏移删除
+        const offset = computeSemanticOffset(root, selection!.anchorNode!, selection!.anchorOffset, this.doc.prefixOffset(block.id))
+        if (offset === null) return
+
+        if (type === EditorActionType.DeleteBackward) {
+          this.scheduler.handleDeleteBackward(block.id, offset)
+        }
+        // DeleteForward 在非展开模式下暂不处理
+      }
+    }
+
     if (action.type === EditorActionType.InsertLineBreak) {
       const block = this.doc.getBlock(getIdFromBlock(selection!.anchorNode!))
       const root = getBlockAnchor(selection!.anchorNode!)
@@ -181,39 +306,11 @@ export class Editor {
       this.scheduler.handleInsertLineBreak(block.id, offset)
     }
 
-    console.groupCollapsed(
-      `%c[EditorAction] %s`,
-      'color:#42b883;font-weight:bold;',
-      type
-    )
-
-    console.log('timestamp:', timestamp)
-
-    if (type == 'insert-text') {
-      console.log('inputType:', inputType)
+    // ========== 跳过 Undo/Redo 后紧随的 SelectionChange ==========
+    if (this.skipNextSelectionAction && type === EditorActionType.Select) {
+      this.skipNextSelectionAction = false
+      return
     }
-
-    if (data != null) {
-      console.log('data:', JSON.stringify(data))
-    }
-
-    console.log(transform(action))
-
-    // selection 信息
-    if (selection) {
-      console.log('selection:', {
-        isCollapsed: selection.isCollapsed,
-        anchorNode: selection.anchorNode,
-        anchorOffset: selection.anchorOffset,
-        focusNode: selection.focusNode,
-        focusOffset: selection.focusOffset
-      })
-    } else {
-      console.log('selection: null')
-    }
-
-    // 原始事件类型
-    // console.log('nativeEvent:', nativeEvent.type)
 
     if (selection && selection.anchorNode === selection.focusNode) { 
       this.dom.clearHighlight()
@@ -221,8 +318,6 @@ export class Editor {
         if (type !== EditorActionType.CompositionEnd)
         this.scheduler.highlightBlock(getIdFromBlock(selection.anchorNode), BlockVisualState.active)
     }
-
-    console.groupEnd()
 
     // ========== Block 级别标记符展开/收起逻辑 ==========
     // 当光标进入某个 Block 时，展开该 Block 的所有标记符
@@ -255,7 +350,38 @@ export class Editor {
 
     
   destroy() {
+    this.controller.destroy()
     this.view.destroy()
+  }
+
+  /**
+   * 获取当前光标位置信息（blockId + 偏移量）
+   * 用于 Undo/Redo 快照中保存光标状态
+   */
+  private getCurrentCursorInfo(selection: SelectionSnapshot | null): CursorInfo | null {
+    if (!selection || !selection.anchorNode || !selection.isCollapsed) return null
+
+    const blockId = getIdFromBlock(selection.anchorNode)
+    if (!blockId) return null
+
+    const block = this.doc.getBlock(blockId)
+    if (!block) return null
+
+    const root = getBlockAnchor(selection.anchorNode)
+    if (!root) return null
+
+    const isExpanded = this.dom.getExpandedBlockId() === blockId
+
+    if (isExpanded) {
+      const rawOffset = computeRawOffset(root, selection.anchorNode, selection.anchorOffset)
+      if (rawOffset === null) return null
+      return { blockId, offset: rawOffset, isRawOffset: true }
+    } else {
+      const prefixOffset = this.doc.prefixOffset(blockId)
+      const semanticOffset = computeSemanticOffset(root, selection.anchorNode, selection.anchorOffset, prefixOffset)
+      if (semanticOffset === null) return null
+      return { blockId, offset: semanticOffset, isRawOffset: false }
+    }
   }
 
   /**
@@ -278,7 +404,6 @@ export class Editor {
 
     // 3. 将字符插入到原始文本中
     const newRawText = rawText.slice(0, rawOffset) + text + rawText.slice(rawOffset)
-    console.log('[InsertInMarker] rawText:', JSON.stringify(rawText), '→', JSON.stringify(newRawText), 'at offset:', rawOffset)
 
     // 4. 全行 reconcile
     const effect = this.doc.reconcileFromRawText(block.id, newRawText)
@@ -314,7 +439,6 @@ export class Editor {
     
     // 2. 将字符插入到原始文本中
     const newRawText = rawText.slice(0, rawOffset) + text + rawText.slice(rawOffset)
-    console.log('[InsertInMarker/IME] rawText:', JSON.stringify(rawText), '→', JSON.stringify(newRawText))
 
     // 3. 全行 reconcile
     const effect = this.doc.reconcileFromRawText(block.id, newRawText)
@@ -346,13 +470,11 @@ export class Editor {
     if (!effect) return
 
     if (effect.kind === 'inline-update') {
-      console.log('update inline')
       this.dom.updateInline(effect.block!)
       return
     }
 
     if (effect.kind === 'block-transform') {
-      console.log('block transform')
       this.applyTransaction({
         type: 'replace-block',
         from: effect.from!,
@@ -369,7 +491,6 @@ export class Editor {
   }
 
   handleDeleteAtListMarker(markerEl: HTMLElement) {
-    console.log('handleDeleteAtListMarker')
     const blockEl = markerEl.closest('.md-line-block') as HTMLDivElement
     if (!blockEl) {
       this.isHandlingDelete = false

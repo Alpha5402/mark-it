@@ -24,9 +24,7 @@ export class DOMScheduler {
     if (node) {
       if (node.classList.contains('md-block-active')) {
         node.classList.remove('md-block-active')
-        console.log('remove active')
       }
-      console.log('mark dirty')
       node.classList.add('md-block-dirty')
       this.dirtyBlocks.add(node)
     }
@@ -38,11 +36,23 @@ export class DOMScheduler {
       resolve(true)
     }).then(() => {
       const block = this.doc.getBlock(BlockId)
-      console.log(block)
       if (!block) return
       const prefixOffset = this.doc.prefixOffset(BlockId)
       this.dom.updateDOM(block, prefixOffset, nextCursorOffset)
     })
+  }
+
+  handleDeleteBackward(blockId: string, offset: number) {
+    const result = this.doc.deleteText(blockId, offset)
+    if (!result) {
+      // 需要跨 block 合并 - 目前暂不实现，仅处理 block 内删除
+      return
+    }
+
+    const block = this.doc.getBlock(blockId)
+    if (!block) return
+    const prefixOffset = this.doc.prefixOffset(blockId)
+    this.dom.updateDOM(block, prefixOffset, result.newOffset)
   }
 
   handleInsertLineBreak(blockId: string, offset: number) {

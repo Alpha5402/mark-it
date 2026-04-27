@@ -126,13 +126,50 @@ export const renderInlineBlock = (block: InlineModel, expanded: boolean = false)
   const frag = document.createDocumentFragment();
 
   if (block.type === 'link') {
-    const link = document.createElement('a')
-    link.href = block.href
-    link.classList.add('md-link')
-    block.children.forEach(child => {
-      link.append(renderInlineBlock(child, expanded))
-    })
-    frag.appendChild(link)
+    if (expanded) {
+      // 展开模式：显示完整的 Markdown 链接语法 [text](url)
+      // 这确保 DOM 文本与 getRawText() 返回的文本一致
+      const wrapper = document.createElement('span')
+      wrapper.classList.add('md-marker-expanded', 'md-link')
+
+      // 前缀标记符 [
+      const prefixSpan = document.createElement('span')
+      prefixSpan.classList.add('md-marker')
+      prefixSpan.textContent = '['
+      wrapper.appendChild(prefixSpan)
+
+      // 链接文本内容
+      block.children.forEach(child => {
+        wrapper.append(renderInlineBlock(child, expanded))
+      })
+
+      // 中间标记符 ](
+      const midSpan = document.createElement('span')
+      midSpan.classList.add('md-marker')
+      midSpan.textContent = ']('
+      wrapper.appendChild(midSpan)
+
+      // href 部分
+      const hrefNode = document.createTextNode(block.href)
+      wrapper.appendChild(hrefNode)
+
+      // 后缀标记符 )
+      const suffixSpan = document.createElement('span')
+      suffixSpan.classList.add('md-marker')
+      suffixSpan.textContent = ')'
+      wrapper.appendChild(suffixSpan)
+
+      frag.appendChild(wrapper)
+    } else {
+      // 非展开模式：正常渲染为 <a> 标签
+      const link = document.createElement('a')
+      link.href = block.href
+      link.classList.add('md-link')
+      block.children.forEach(child => {
+        link.append(renderInlineBlock(child, expanded))
+      })
+      frag.appendChild(link)
+    }
   } else if (block.type === 'text') {
     // 如果是展开模式且有标记符，渲染带标记符的展开形式
     if (expanded && block.markers && block.marks !== 0) {

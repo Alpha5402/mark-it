@@ -27,8 +27,8 @@ export class EditorView {
   }
 
   destroy() {
-    if (this.container.contains(this.area)) {
-      this.container.removeChild(this.area);
+    if (this.container.contains(this.document)) {
+      this.container.removeChild(this.document);
     }
   }
 
@@ -90,7 +90,6 @@ export class EditorView {
 
       const markerText = markerEl?.textContent ?? ''
       const contentText = contentEl?.textContent ?? ''
-      console.log(markerText + ' ' + contentText)
       return markerText + ' ' + contentText
     }
 

@@ -24,7 +24,6 @@ interface SplitAction {
 export type DocumentAction = InsertAction | DeleteAction | SplitAction
 
 export const transform = (ctx: EditorActionContext): DocumentAction | null => {
-  console.log('transform')
   if (!ctx.selection) return null
 
   if (ctx.type === 'delete-backward') {
@@ -35,7 +34,6 @@ export const transform = (ctx: EditorActionContext): DocumentAction | null => {
     const start = findAnchor(anchorNode, anchorOffset)
 
     const end = findAnchor(focusNode, focusOffset)
-    console.log(start, end)
     if (!start || !end) return null
     const startBlockId = start.blockId
     const startOffset = start.offset

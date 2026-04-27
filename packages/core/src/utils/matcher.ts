@@ -11,7 +11,6 @@ export function matchListItem(
   block: ListItemBlock
 ): BlockMatchResult {
   // 无序列表
-  console.log(text)
   if (!block.style.ordered) {
     // 支持展开模式的 "- " 前缀和收起模式的 "• " 前缀
     if (text.startsWith('• ') || text.startsWith('- ')) {

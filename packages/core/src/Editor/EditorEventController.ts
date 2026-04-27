@@ -18,6 +18,9 @@ export enum EditorActionType {
   CompositionUpdate = 'composition-update',
   CompositionEnd = 'composition-end',
 
+  Undo = 'undo',
+  Redo = 'redo',
+
   DomMutated = 'dom-mutated',
 
   Unknown = 'unknown'
@@ -65,7 +68,6 @@ export class EventController {
     private readonly root: HTMLElement,
     private readonly onAction: (ctx: EditorActionContext) => void
   ) {
-    console.log('root', root)
     this.bind()
     this.initMutationObserver()
     // 初始化选区状态
@@ -343,9 +345,19 @@ export class EventController {
     // 非上下键操作，清除 stickyX
     this.stickyX = null
 
-    // 示例：拦截 Undo (如果我们要自己做历史记录的话)
-    if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+    // Undo: Ctrl+Z / Cmd+Z
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
       e.preventDefault()
+      this.emit(EditorActionType.Undo, e)
+      return
+    }
+
+    // Redo: Ctrl+Shift+Z / Cmd+Shift+Z 或 Ctrl+Y / Cmd+Y
+    if (((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'z') ||
+        ((e.ctrlKey || e.metaKey) && e.key === 'y')) {
+      e.preventDefault()
+      this.emit(EditorActionType.Redo, e)
+      return
     }
   }
 

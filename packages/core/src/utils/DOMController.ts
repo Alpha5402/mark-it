@@ -30,16 +30,39 @@ function isInsideStructMarker(node: Node): boolean {
 export class DOMController {
   private nodes = new Map<string, HTMLDivElement>()
   private highLightedBlocks = new Set<HTMLElement>()
+  private container: HTMLDivElement
   constructor(
     container: HTMLDivElement, 
     models: BlockModel[],
   ) {
+    this.container = container
     models.forEach(model => {
       const rendered = renderBlock(model)
       const wrapper = this.fragmentToElement(rendered)
       wrapper.dataset.blockId = model.id
       this.nodes.set(model.id, wrapper)
       container.appendChild(wrapper)
+    })
+  }
+
+  /**
+   * 从新的 block 列表完全重建 DOM（用于 Undo/Redo）
+   * 清空现有节点，重新渲染所有 blocks
+   */
+  fullRebuild(models: BlockModel[]): void {
+    // 清空现有 DOM 和映射
+    this.container.innerHTML = ''
+    this.nodes.clear()
+    this.highLightedBlocks.clear()
+    this.expandedBlockId = null
+
+    // 重新渲染所有 blocks
+    models.forEach(model => {
+      const rendered = renderBlock(model)
+      const wrapper = this.fragmentToElement(rendered)
+      wrapper.dataset.blockId = model.id
+      this.nodes.set(model.id, wrapper)
+      this.container.appendChild(wrapper)
     })
   }
 
@@ -217,7 +240,6 @@ export class DOMController {
 
   highlightBlock(BlockId: string, type: number) {
     const el = this.nodes.get(BlockId)
-    console.log('highlightBlock', BlockId, type, el)
     if (!el) return
 
     this.highLightedBlocks.add(el)
@@ -1007,7 +1029,6 @@ export function resolveDivideRange(
       )
       let textNode: Text | null
       while ((textNode = walker.nextNode() as Text)) {
-        console.log(index, children.length)
         pushTextSlots(textNode, index !== children.length - 1)
       }
       return

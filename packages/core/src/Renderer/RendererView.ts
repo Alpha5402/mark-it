@@ -26,8 +26,8 @@ export class RenderView {
   }
 
   destroy() {
-    if (this.container.contains(this.area)) {
-      this.container.removeChild(this.area);
+    if (this.container.contains(this.documentContainer)) {
+      this.container.removeChild(this.documentContainer);
     }
   }
 }
