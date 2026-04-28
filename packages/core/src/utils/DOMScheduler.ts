@@ -45,7 +45,8 @@ export class DOMScheduler {
   handleDeleteBackward(blockId: string, offset: number) {
     const result = this.doc.deleteText(blockId, offset)
     if (!result) {
-      // 需要跨 block 合并 - 目前暂不实现，仅处理 block 内删除
+      // 需要跨 block 合并
+      this.handleMergeWithPreviousBlock(blockId)
       return
     }
 
@@ -53,6 +54,28 @@ export class DOMScheduler {
     if (!block) return
     const prefixOffset = this.doc.prefixOffset(blockId)
     this.dom.updateDOM(block, prefixOffset, result.newOffset)
+  }
+
+  /**
+   * 跨 Block 合并：将当前 block 的内容合并到前一个 block 末尾，然后删除当前 block
+   * 合并后展开前一个 block 并定位光标到合并点
+   */
+  private handleMergeWithPreviousBlock(blockId: string) {
+    const mergeResult = this.doc.mergeBlockWithPrevious(blockId)
+    if (!mergeResult) return
+
+    const { mergedBlock, cursorRawOffset, removedBlockId } = mergeResult
+
+    // 1. 从 DOM 移除被删除的 block 节点
+    this.dom.removeBlockNode(removedBlockId)
+
+    // 2. 重新渲染合并后的 block（先收起再渲染）
+    this.dom.replaceBlock(mergedBlock, mergedBlock)
+
+    // 3. 展开合并后的 block 并定位光标到合并点
+    this.dom.forceResetExpanded()
+    this.dom.renderBlockExpanded(mergedBlock)
+    this.dom.setCursorByRawOffset(mergedBlock.id, cursorRawOffset)
   }
 
   handleInsertLineBreak(blockId: string, offset: number) {
@@ -72,5 +95,13 @@ export class DOMScheduler {
       const newPrefixOffset = this.doc.prefixOffset(result.id)
       this.dom.setCursor(result.id, newPrefixOffset, newPrefixOffset, 'current')
     })
+  }
+
+  /**
+   * 销毁 DOMScheduler，清空内部状态
+   */
+  destroy() {
+    this.activeBlocks.clear()
+    this.dirtyBlocks.clear()
   }
 }

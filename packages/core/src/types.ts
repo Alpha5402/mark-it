@@ -20,6 +20,7 @@ export type RawLine = {
 export type InlineModel =
   | TextInline
   | LinkInline
+  | ImageInline
 
 export type TextInline = {
   type: 'text'
@@ -39,9 +40,18 @@ export type LinkInline = {
   dirty: boolean
 }
 
+export type ImageInline = {
+  type: 'image'
+  alt: string
+  src: string
+  marks: number
+  offset: number
+  dirty: boolean
+}
+
 export type BlockModel = {
   id: string
-  type: 'paragraph' | 'list-item' | 'heading' | 'table' | 'image' | 'card' | 'blank'
+  type: 'paragraph' | 'list-item' | 'heading' | 'hr' | 'blockquote' | 'code-block' | 'table' | 'image' | 'card' | 'blank'
   nesting?: number     // 缩进/嵌套
   inline?: InlineModel[]     // 对应文字内容
   children?: BlockModel[]     // 嵌套元素，例如表格行、列表子项
@@ -62,7 +72,24 @@ export interface ListItemBlock extends BlockModel {
     order: string
   } | {
     ordered: false
+  } | {
+    ordered: false
+    task: true
+    checked: boolean
   }
+}
+
+export interface BlockquoteBlock extends BlockModel {
+  id: string
+  type: 'blockquote'
+  quoteDepth: number  // 引用嵌套层级，> 为 1，>> 为 2
+}
+
+export interface CodeBlock extends BlockModel {
+  id: string
+  type: 'code-block'
+  language: string    // 语言标注，如 'javascript'、'python'
+  code: string        // 代码内容（原始文本，不做 inline 解析）
 }
 
 export interface DivideUnit {

@@ -16,6 +16,7 @@ export class EditorView {
 
     this.title = document.createElement('div');
     this.title.className = 'md-line-block md-heading-1'
+    this.title.contentEditable = 'true'
     this.title.innerText = title
     this.document.appendChild(this.title)
     this.document.appendChild(document.createElement('hr'))

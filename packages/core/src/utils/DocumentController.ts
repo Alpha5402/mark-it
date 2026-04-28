@@ -1,5 +1,5 @@
 
-import { BlockModel, InlineModel, ListItemBlock, HeadingBlock, TextInline, INLINE_FLAG } from "../types"
+import { BlockModel, InlineModel, ListItemBlock, HeadingBlock, BlockquoteBlock, CodeBlock, TextInline, INLINE_FLAG } from "../types"
 import { parseLine, inlineParse } from "./parse"
 import { initialTokenize, tokenizeByLine, uid } from "./tokenize"
 import { BlockMatchResult, matchListItem, matchHeading } from "./matcher"
@@ -11,7 +11,6 @@ export class DocumentController {
     initialTokenize(content).forEach(raw => {
       const parsed = parseLine(raw)
       this.blocks.set(parsed.id, parsed)
-      // console.log(parsed)
     })
   }
   
@@ -57,12 +56,22 @@ export class DocumentController {
       const listItem = block as ListItemBlock
       if (listItem.style.ordered) {
         raw += listItem.style.order
+      } else if ('task' in listItem.style && listItem.style.task) {
+        raw += '- [' + (listItem.style.checked ? 'x' : ' ') + '] '
       } else {
         raw += '- '
       }
     } else if (block.type === 'heading') {
       const heading = block as HeadingBlock
       raw += '#'.repeat(heading.headingDepth) + ' '
+    } else if (block.type === 'hr') {
+      return '---'
+    } else if (block.type === 'blockquote') {
+      const bq = block as BlockquoteBlock
+      raw += '>'.repeat(bq.quoteDepth) + ' '
+    } else if (block.type === 'code-block') {
+      const cb = block as CodeBlock
+      return '```' + cb.language + '\n' + cb.code + '\n```'
     }
 
     // 3. inline 内容（包含 inline 标记符）
@@ -76,7 +85,7 @@ export class DocumentController {
   /**
    * 将 inline model 数组重建为原始 Markdown 文本（包含标记符如 **、~~、== 等）
    */
-  private inlineToRawText(inlines: InlineModel[]): string {
+  inlineToRawText(inlines: InlineModel[]): string {
     let result = ''
     for (const inline of inlines) {
       if (inline.type === 'text') {
@@ -88,6 +97,8 @@ export class DocumentController {
       } else if (inline.type === 'link') {
         const linkText = this.inlineToRawText(inline.children)
         result += `[${linkText}](${inline.href})`
+      } else if (inline.type === 'image') {
+        result += `![${inline.alt}](${inline.src})`
       }
     }
     return result
@@ -100,13 +111,68 @@ export class DocumentController {
   reconcileFromRawText(blockId: string, newRawText: string): 
     { kind: 'inline-update'; block: BlockModel } | 
     { kind: 'block-transform'; from: BlockModel; to: BlockModel } | 
+    { kind: 'code-block-degrade'; from: BlockModel; lines: BlockModel[] } |
     null {
     const block = this.blocks.get(blockId)
     if (!block) return null
 
+    // 代码块特殊处理：如果编辑后不再匹配代码块正则，按行拆分退化为多个 block
+    if (block.type === 'code-block') {
+      const codeBlockMatch = newRawText.match(/^(`{3,}|~{3,})\s*(.*)\n([\s\S]*)\n\1\s*$/)
+      if (codeBlockMatch) {
+        // 仍然是合法的代码块，更新内容
+        const newBlock: CodeBlock = {
+          id: block.id,
+          type: 'code-block',
+          language: codeBlockMatch[2].trim(),
+          code: codeBlockMatch[3],
+          inline: []
+        }
+        this.blocks.set(blockId, newBlock)
+        if (newBlock.language !== (block as CodeBlock).language || newBlock.code !== (block as CodeBlock).code) {
+          return { kind: 'block-transform', from: block, to: newBlock }
+        }
+        return { kind: 'inline-update', block: newBlock }
+      } else {
+        // 代码块语法被破坏，按行拆分为多个 paragraph
+        const lines = newRawText.split('\n')
+        const newBlocks: BlockModel[] = []
+        
+        // 第一行复用当前 block 的 id
+        for (let i = 0; i < lines.length; i++) {
+          const line = tokenizeByLine(lines[i], i === 0 ? block.id : undefined)
+          const parsed = parseLine(line)
+          newBlocks.push(parsed)
+        }
+        
+        // 更新 blocks map：删除旧的 code-block，插入新的多行 block
+        // 重建 Map 保证顺序
+        const newBlocksMap = new Map<string, BlockModel>()
+        for (const [id, b] of this.blocks) {
+          if (id === blockId) {
+            for (const nb of newBlocks) {
+              newBlocksMap.set(nb.id, nb)
+            }
+          } else {
+            newBlocksMap.set(id, b)
+          }
+        }
+        this.blocks = newBlocksMap
+        
+        return { kind: 'code-block-degrade', from: block, lines: newBlocks }
+      }
+    }
+
+    // 当 blockquote 的引用符号被完全删除后，行首可能残留空格
+    // （`> text` → ` text`），需要去掉行首的空格
+    let rawTextForParse = newRawText
+    if (block.type === 'blockquote' && !newRawText.startsWith('>')) {
+      rawTextForParse = newRawText.replace(/^\s/, '')
+    }
+
     // 用 parseLine 重新解析整行文本（需要正确提取 leading 以保留缩进信息）
-    const leading = newRawText.match(/^[ \t]*/)?.[0] ?? ''
-    const newBlock = parseLine({ id: block.id, raw: newRawText, leading })
+    const leading = rawTextForParse.match(/^[ \t]*/)?.[0] ?? ''
+    const newBlock = parseLine({ id: block.id, raw: rawTextForParse, leading })
 
     // 判断是否发生了结构变化
     if (newBlock.type !== block.type) {
@@ -173,6 +239,67 @@ export class DocumentController {
     }
   }
 
+  /**
+   * 获取指定 block 的前一个 block ID（按文档顺序）
+   * 如果已经是第一个 block 则返回 null
+   */
+  getPreviousBlockId(blockId: string): string | null {
+    const ids = Array.from(this.blocks.keys())
+    const idx = ids.indexOf(blockId)
+    if (idx <= 0) return null
+    return ids[idx - 1]
+  }
+
+  /**
+   * 将当前 block 的内容合并到前一个 block 末尾，然后删除当前 block
+   * 返回合并后的 block 和光标应该定位的语义偏移量
+   * 
+   * 合并策略：
+   * - 将当前 block 的原始文本（不含结构前缀）追加到前一个 block 的原始文本末尾
+   * - 用 reconcileFromRawText 重新解析前一个 block
+   * - 删除当前 block
+   */
+  mergeBlockWithPrevious(blockId: string): {
+    mergedBlock: BlockModel
+    cursorRawOffset: number
+    removedBlockId: string
+  } | null {
+    const prevId = this.getPreviousBlockId(blockId)
+    if (!prevId) return null
+
+    const currentBlock = this.blocks.get(blockId)
+    const prevBlock = this.blocks.get(prevId)
+    if (!currentBlock || !prevBlock) return null
+
+    // 获取前一个 block 的原始文本
+    const prevRawText = this.getRawText(prevId)
+    // 光标应该定位在前一个 block 原始文本的末尾
+    const cursorRawOffset = prevRawText.length
+
+    // 获取当前 block 的完整原始文本（包含结构前缀如 ##、- 等）
+    // 因为在 markdown 源码中，这些标识符是真实存在的文本
+    const currentRawText = this.getRawText(blockId)
+
+    // 合并后的文本 = 前一个 block 原始文本 + 当前 block 完整原始文本
+    const mergedRawText = prevRawText + currentRawText
+
+    // 用 reconcile 重新解析前一个 block
+    const effect = this.reconcileFromRawText(prevId, mergedRawText)
+    if (!effect) return null
+    if (effect.kind === 'code-block-degrade') return null
+
+    const mergedBlock = effect.kind === 'block-transform' ? effect.to : effect.block
+
+    // 删除当前 block
+    this.blocks.delete(blockId)
+
+    return {
+      mergedBlock,
+      cursorRawOffset,
+      removedBlockId: blockId
+    }
+  }
+
   prefixOffset = (BlockId: string) => {
     const block = this.blocks.get(BlockId)
     if (!block || !block.inline) return 0
@@ -188,9 +315,14 @@ export class DocumentController {
 
     if (block.type === 'list-item') {
       const listItem = block as ListItemBlock
-      prefixOffset += listItem.style.ordered 
-        ? listItem.style.order.length + 1 
-        : 2
+      if (listItem.style.ordered) {
+        prefixOffset += listItem.style.order.length
+      } else if ('task' in listItem.style && listItem.style.task) {
+        // "- [x] " = 6 characters
+        prefixOffset += 6
+      } else {
+        prefixOffset += 2
+      }
     }
 
     if (block.type === 'heading') {
@@ -199,7 +331,39 @@ export class DocumentController {
       prefixOffset += heading.headingDepth + 1
     }
 
+    if (block.type === 'blockquote') {
+      const bq = block as BlockquoteBlock
+      // blockquote marker: n 个 > + 1 个空格
+      prefixOffset += bq.quoteDepth + 1
+    }
+
     return prefixOffset
+  }
+
+  /**
+   * 从原始 Markdown 文本创建一个新 block 并注册到文档中
+   * 确保新 block 插入到 afterBlockId 指定的 block 之后（Map 顺序）
+   * 用于展开模式下的换行操作
+   */
+  createBlockFromRawText(rawText: string, afterBlockId?: string): BlockModel {
+    const line = tokenizeByLine(rawText)
+    const block = parseLine(line)
+
+    if (afterBlockId) {
+      // 需要在 afterBlockId 之后插入，重建 Map 保证顺序
+      const newBlocks = new Map<string, BlockModel>()
+      for (const [id, b] of this.blocks) {
+        newBlocks.set(id, b)
+        if (id === afterBlockId) {
+          newBlocks.set(block.id, block)
+        }
+      }
+      this.blocks = newBlocks
+    } else {
+      this.blocks.set(block.id, block)
+    }
+
+    return block
   }
 
   recoveryOffset = (BlockId: string, offset: number) => {
@@ -431,14 +595,16 @@ function findInlineAtOffset(inlines: InlineModel[], offset: number) {
 function cloneBlock(origin: BlockModel, inline: InlineModel[]): ListItemBlock | BlockModel {
   if (origin.type === 'list-item') {
     const newBlock = origin as ListItemBlock
+    const newStyle = newBlock.style.ordered
+      ? { ordered: true as const, order: incrementOrder(newBlock.style.order) }
+      : 'task' in newBlock.style && newBlock.style.task
+        ? { ordered: false as const, task: true as const, checked: false }
+        : { ordered: false as const }
     return {
       ...newBlock,
       id: uid(),
       inline: inline,
-      style: {
-        ordered: newBlock.style.ordered,
-        order: newBlock.style.ordered ? incrementOrder(newBlock.style.order) : ''
-      }
+      style: newStyle
     }
   }
   

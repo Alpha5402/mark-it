@@ -34,7 +34,6 @@ export class Renderer {
   }
 
   private updateRenderContent(content: string) {
-    console.log(content)
 
   }
 }

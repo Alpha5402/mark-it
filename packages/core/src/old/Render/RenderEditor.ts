@@ -5,7 +5,6 @@ import { createBlockElement } from '../Editor/patch'
 
 export function enterEditMode(renderer: Renderer, block: HTMLElement) {
   const id = block.dataset.id!;
-  console.log(id)
   const line = renderer.doc.getLineById(id);
   
   if (!line) return;

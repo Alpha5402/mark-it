@@ -1,4 +1,4 @@
-import { RawLine, BlockModel, InlineModel, INLINE_FLAG, HeadingBlock, ListItemBlock } from "../types";
+import { RawLine, BlockModel, InlineModel, INLINE_FLAG, HeadingBlock, ListItemBlock, BlockquoteBlock, CodeBlock } from "../types";
 
 const TAB_WIDTH = 4
 
@@ -23,7 +23,7 @@ export function inlineParse(input: string): {
   // ========== 第一遍：扫描所有标记符位置 ==========
   const tokens: MarkerToken[] = []
   // 同时处理链接结构
-  type LinkSpan = { start: number; closeBracket: number; openParen: number; closeParen: number }
+  type LinkSpan = { start: number; closeBracket: number; openParen: number; closeParen: number; isImage?: boolean }
   const links: LinkSpan[] = []
 
   let i = 0
@@ -50,13 +50,28 @@ export function inlineParse(input: string): {
       continue
     }
 
+    // 图片 ![alt](url)
+    if (input[i] === '!' && input[i + 1] === '[') {
+      const closeBracket = input.indexOf(']', i + 2)
+      if (closeBracket !== -1 && input[closeBracket + 1] === '(') {
+        const closeParen = input.indexOf(')', closeBracket + 2)
+        if (closeParen !== -1) {
+          links.push({ start: i, closeBracket, openParen: closeBracket + 1, closeParen, isImage: true })
+          i = closeParen + 1
+          continue
+        }
+      }
+      i++
+      continue
+    }
+
     // 链接 [text](url)
     if (input[i] === '[') {
       const closeBracket = input.indexOf(']', i + 1)
       if (closeBracket !== -1 && input[closeBracket + 1] === '(') {
         const closeParen = input.indexOf(')', closeBracket + 2)
         if (closeParen !== -1) {
-          links.push({ start: i, closeBracket, openParen: closeBracket + 1, closeParen })
+          links.push({ start: i, closeBracket, openParen: closeBracket + 1, closeParen, isImage: false })
           i = closeParen + 1
           continue
         }
@@ -189,25 +204,44 @@ export function inlineParse(input: string): {
   }
 
   while (pos < input.length) {
-    // 检查是否是链接起始
+    // 检查是否是链接/图片起始
     const link = linkAtPos.get(pos)
     if (link) {
       flush()
-      const linkTextRaw = input.slice(link.start + 1, link.closeBracket)
-      const href = input.slice(link.openParen + 1, link.closeParen)
-      const parseResult = inlineParse(linkTextRaw)
+      if (link.isImage) {
+        // 图片 ![alt](src)
+        const altText = input.slice(link.start + 2, link.closeBracket)
+        const src = input.slice(link.openParen + 1, link.closeParen)
 
-      result.push({
-        type: 'link',
-        children: parseResult.inline,
-        href,
-        marks: currentMarks,
-        offset: logicalOffset,
-        dirty: false
-      })
+        result.push({
+          type: 'image',
+          alt: altText,
+          src,
+          marks: currentMarks,
+          offset: logicalOffset,
+          dirty: false
+        })
 
-      logicalOffset += parseResult.offset
-      pos = link.closeParen + 1
+        logicalOffset += altText.length
+        pos = link.closeParen + 1
+      } else {
+        // 链接 [text](url)
+        const linkTextRaw = input.slice(link.start + 1, link.closeBracket)
+        const href = input.slice(link.openParen + 1, link.closeParen)
+        const parseResult = inlineParse(linkTextRaw)
+
+        result.push({
+          type: 'link',
+          children: parseResult.inline,
+          href,
+          marks: currentMarks,
+          offset: logicalOffset,
+          dirty: false
+        })
+
+        logicalOffset += parseResult.offset
+        pos = link.closeParen + 1
+      }
       continue
     }
 
@@ -299,13 +333,67 @@ export function parseLine(line: RawLine): BlockModel {
   if (raw.trim() === '')
     return {
       id: line.id,
-      type: 'blank'
+      type: 'blank',
+      inline: []
     }
+
+  // 如果是水平线：---、***、___（至少 3 个相同字符，可以有空格）
+  if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(raw.trim()))
+    return {
+      id: line.id,
+      type: 'hr',
+      inline: []
+    }
+
+  // 如果是围栏代码块（由 tokenize 阶段合并的多行 token）
+  const codeBlockMatch = raw.match(/^(`{3,}|~{3,})\s*(.*)\n([\s\S]*)\n\1\s*$/)
+  if (codeBlockMatch) {
+    return {
+      id: line.id,
+      type: 'code-block',
+      language: codeBlockMatch[2].trim(),
+      code: codeBlockMatch[3],
+      inline: []
+    } as CodeBlock
+  }
+
+  // 如果是引用
+  if (/^(>+)\s?(.*)$/.test(raw)) {
+    const match = raw.match(/^(>+)\s?(.*)$/)!
+    const depth = match[1].length
+    const content = match[2]
+    return {
+      id: line.id,
+      type: 'blockquote',
+      quoteDepth: depth,
+      inline: inlineParse(content).inline,
+    } as BlockquoteBlock
+  }
   
   // 如果是列表项
   if (/^\s*[-*+]\s/.test(raw)) {
     const match = raw.match(/^\s*[-*+]\s/)!
-    const content = raw.slice(match[0].length)
+    const afterMarker = raw.slice(match[0].length)
+
+    // 检测任务列表：- [ ] 或 - [x] 或 - [X]
+    const taskMatch = afterMarker.match(/^\[([ xX])\]\s?/)
+    if (taskMatch) {
+      const checked = taskMatch[1] !== ' '
+      const content = afterMarker.slice(taskMatch[0].length)
+      return {
+        id: line.id,
+        type: 'list-item',
+        nesting: leadingSpaceParse(leading),
+        inline: inlineParse(content).inline,
+        style: {
+          ordered: false,
+          task: true,
+          checked
+        }
+      } as ListItemBlock
+    }
+
+    const content = afterMarker
 
     return {
       id: line.id,
@@ -321,8 +409,11 @@ export function parseLine(line: RawLine): BlockModel {
   // 如果是有序列表
   if (/^(\s*)(\d+)\.\s/.test(raw)) {
     const match = raw.match(/^(\s*)(\d+)\.\s/)!
-    const order = match[0]
-    const content = raw.slice(order.length)
+    // match[0] 包含前导空白 + 数字 + 点 + 空格
+    // match[1] 是前导空白, match[2] 是数字
+    // order 只保留 "数字. " 部分（不含前导空白，前导空白由 nesting 处理）
+    const order = match[2] + '. '
+    const content = raw.slice(match[0].length)
 
     return {
       id: line.id,
@@ -336,8 +427,8 @@ export function parseLine(line: RawLine): BlockModel {
     } as ListItemBlock
   }
 
-  if (/^(#{1,6})\s+(.*)$/.test(raw)) {
-    const match = raw.match(/^(#{1,6})\s+(.*)$/)!
+  if (/^(#{1,6}) (.*)$/.test(raw)) {
+    const match = raw.match(/^(#{1,6}) (.*)$/)!
     // 注意 heading 不缩进，这里直接复用 depth 作为标题层级
     const depth = match[1].length
     const content = match[2]

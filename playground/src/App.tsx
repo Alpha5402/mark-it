@@ -1,8 +1,7 @@
-import React, { useEffect, useRef } from 'react';
-import { Layout, Row, Col, Button } from 'tdesign-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Layout, Button } from 'tdesign-react';
 import 'tdesign-react/es/style/index.css';
 import './App.css'; 
-// import { useMarkdown } from './hooks/useMarkdown';
 import { Editor, Renderer } from '@mark-it/core';
 
 const { Header, Content } = Layout;
@@ -30,43 +29,59 @@ const App: React.FC = () => {
 		1. 这是一个有序列表
 		2. 这是一个有序列表
 
-这是一个包含了**加粗**、*斜体*、_斜体_、~~删除线~~、==高亮==、[超链接](https://www.baidu.com)的文本。啊啊啊啊啊啊 saki 酱，saki 酱，saki 酱，saki 酱，saki 酱，saki 酱，saki 酱，saki 酱，saki 酱，saki 酱，saki 酱`
-  
-  const editorModel = true
-  // const handleInput = (e: ChangeEvent<HTMLTextAreaElement>) => {
-  //   setMarkdown(e.target.value);
-  // };
-  const containerRef = useRef<HTMLDivElement>(null);
+这是一个包含了**加粗**、*斜体*、_斜体_、~~删除线~~、==高亮==、[超链接](https://www.baidu.com)的文本。啊啊啊啊啊啊 saki 酱，saki 酱，saki 酱，saki 酱，saki 酱，saki 酱，saki 酱，saki 酱，saki 酱，saki 酱，saki 酱
 
+---
+
+> 这是一段引用文本
+> 引用的**第二行**
+
+\`\`\`javascript
+function hello() {
+  console.log("Hello, World!")
+}
+\`\`\``;
+  
+  const editorModel = true;
+  const containerRef = useRef<HTMLDivElement>(null);
   const editorInstance = useRef<Editor | null>(null);
-  const rendererRef = useRef<HTMLDivElement>(null)
-  const rendererInstance = useRef<Renderer | null> (null)
+  const rendererRef = useRef<HTMLDivElement>(null);
+  const rendererInstance = useRef<Renderer | null>(null);
+
+  // markdown 源文本状态，供左侧面板实时展示
+  const [markdownSource, setMarkdownSource] = useState<string>(initialContent);
+
   useEffect(() => {
     if (!containerRef.current && !rendererRef.current) return;
 
     if (editorModel) {
       editorInstance.current = new Editor(
-        containerRef.current, 
+        containerRef.current!, 
         '未命名',
         initialContent
       );
+
+      // 注册内容变化回调，实时更新源文本
+      editorInstance.current.onContentChange((markdown: string) => {
+        setMarkdownSource(markdown);
+      });
     } else {
       rendererInstance.current = new Renderer(
-        containerRef.current,
+        containerRef.current!,
         '未命名',
         initialContent
-      )
+      );
     }
 
     return () => {
       editorInstance.current?.destroy();
       rendererInstance.current?.destroy();
     };
-  }, []); // 空数组表示只在挂载时执行一次
+  }, []);
 
   return (
     <Layout className="app-layout">
-      {/* 1. 公共头部：不需要写两遍 */}
+      {/* 公共头部 */}
       <Header className="app-header">
         <h3>Mark it</h3>
         <div className="button-container">
@@ -75,8 +90,17 @@ const App: React.FC = () => {
         </div>
       </Header>
 
-      {/* 2. 内容区域：根据模式切换 */}
+      {/* 内容区域：左右分栏 */}
       <Content className="app-content">
+        {/* 左侧：Markdown 源文本（只读） */}
+        <div className="source-pane">
+          <div className="pane-header">MARKDOWN SOURCE</div>
+          <div className="source-scroll">
+            <pre className="source-pre">{markdownSource}</pre>
+          </div>
+        </div>
+
+        {/* 右侧：编辑器渲染区 */}
         <div className="render-layout">
           <div className='renderer-container' ref={containerRef}></div>
         </div>

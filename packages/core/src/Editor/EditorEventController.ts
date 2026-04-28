@@ -21,6 +21,13 @@ export enum EditorActionType {
   Undo = 'undo',
   Redo = 'redo',
 
+  /** 格式化快捷键：data 为 'bold' | 'italic' | 'strikethrough' | 'code' | 'highlight' | 'link' */
+  FormatToggle = 'format-toggle',
+  /** Tab 缩进 */
+  Indent = 'indent',
+  /** Shift+Tab 反缩进 */
+  Outdent = 'outdent',
+
   DomMutated = 'dom-mutated',
 
   Unknown = 'unknown'
@@ -345,6 +352,37 @@ export class EventController {
     // 非上下键操作，清除 stickyX
     this.stickyX = null
 
+    // Tab / Shift+Tab：缩进/反缩进
+    if (e.key === 'Tab') {
+      e.preventDefault()
+      this.stickyX = null
+      if (e.shiftKey) {
+        this.emit(EditorActionType.Outdent, e)
+      } else {
+        this.emit(EditorActionType.Indent, e)
+      }
+      return
+    }
+
+    // 格式化快捷键（Ctrl/Cmd + 字母）
+    if (e.ctrlKey || e.metaKey) {
+      let format: string | null = null
+      const key = e.key.toLowerCase()
+      if (key === 'b' && !e.shiftKey) format = 'bold'
+      else if (key === 'i' && !e.shiftKey) format = 'italic'
+      else if (key === 'k' && !e.shiftKey) format = 'link'
+      else if (key === 'e' && !e.shiftKey) format = 'code'
+      else if (key === 'd' && !e.shiftKey) format = 'strikethrough'
+      else if (key === 'h' && e.shiftKey) format = 'highlight'
+
+      if (format) {
+        e.preventDefault()
+        this.stickyX = null
+        this.emit(EditorActionType.FormatToggle, e, { data: format })
+        return
+      }
+    }
+
     // Undo: Ctrl+Z / Cmd+Z
     if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
       e.preventDefault()
@@ -390,10 +428,12 @@ export class EventController {
   // -------------------------
 
   private onCopy = (e: ClipboardEvent) => {
+    e.preventDefault()
     this.emit(EditorActionType.Copy, e)
   }
 
   private onCut = (e: ClipboardEvent) => {
+    e.preventDefault()
     this.emit(EditorActionType.Cut, e)
   }
 

@@ -238,7 +238,7 @@ export class DOMController {
     }
   }
 
-  highlightBlock(BlockId: string, type: number) {
+  highlightBlock(BlockId: string, type: number, rangePosition?: 'first' | 'middle' | 'last' | 'only') {
     const el = this.nodes.get(BlockId)
     if (!el) return
 
@@ -249,11 +249,15 @@ export class DOMController {
     if (type & BlockVisualState.dirty) {
       el.classList.add('md-block-dirty')
     }
+    // 跨 Block 连续选区：添加位置类以控制 border-radius
+    if (rangePosition && rangePosition !== 'only') {
+      el.classList.add(`md-block-range-${rangePosition}`)
+    }
   }
 
   clearHighlight() {
     this.highLightedBlocks.forEach(node => {
-      node.classList.remove('md-block-active')
+      node.classList.remove('md-block-active', 'md-block-range-first', 'md-block-range-middle', 'md-block-range-last')
     })
     this.highLightedBlocks.clear()
   }
@@ -620,10 +624,225 @@ export class DOMController {
     }
   }
 
+  /**
+   * 从 DOM 和 nodes Map 中移除指定 block 节点
+   */
+  removeBlockNode(blockId: string) {
+    const el = this.nodes.get(blockId)
+    if (!el) return
+
+    el.parentNode?.removeChild(el)
+    this.nodes.delete(blockId)
+    this.highLightedBlocks.delete(el)
+  }
+
+  /**
+   * 销毁 DOMController，清空所有内部状态和 DOM 节点引用
+   */
+  destroy() {
+    this.container.innerHTML = ''
+    this.nodes.clear()
+    this.highLightedBlocks.clear()
+    this.expandedBlockId = null
+    this.multiExpandedBlockIds.clear()
+  }
+
   // ========== Block 级别标记符展开/收起 ==========
 
-  // 当前展开的 block ID
+  // 当前展开的 block ID（单 block 编辑模式）
   private expandedBlockId: string | null = null
+  // 跨 block 选中时展开的 block ID 集合
+  private multiExpandedBlockIds: Set<string> = new Set()
+
+  /**
+   * 展开多个 block（用于跨 Block 选中场景）
+   * 不保存/恢复光标，因为浏览器原生选区会自行管理
+   */
+  expandMultipleBlocks(blockIds: string[], blocks: Map<string, BlockModel>): void {
+    // 先收起单 block 展开模式（不恢复光标）
+    if (this.expandedBlockId) {
+      const blockEl = this.nodes.get(this.expandedBlockId)
+      if (blockEl) {
+        const block = blocks.get(this.expandedBlockId)
+        if (block) {
+          const fragment = renderBlock(block, false)
+          const tempWrapper = document.createElement('div')
+          tempWrapper.appendChild(fragment)
+          blockEl.replaceChildren(...Array.from(tempWrapper.childNodes))
+        }
+        blockEl.classList.remove('md-block-expanded')
+      }
+      this.expandedBlockId = null
+    }
+
+    // 只展开新加入的 block，不收起已展开但不在当前范围内的 block
+    // （避免拖选缩小时收起 block 导致 DOM 变化破坏选区）
+    // 收起操作由 collapseAllMultiExpanded 统一处理（选区结束后调用）
+    for (const id of blockIds) {
+      if (this.multiExpandedBlockIds.has(id)) continue // 已展开
+      const blockEl = this.nodes.get(id)
+      const block = blocks.get(id)
+      if (!blockEl || !block) continue
+
+      const fragment = renderBlock(block, true)
+      const tempWrapper = document.createElement('div')
+      tempWrapper.appendChild(fragment)
+      blockEl.replaceChildren(...Array.from(tempWrapper.childNodes))
+      blockEl.classList.add('md-block-expanded')
+      this.multiExpandedBlockIds.add(id)
+    }
+  }
+
+  /**
+   * 收起所有多 block 展开状态
+   */
+  collapseAllMultiExpanded(blocks: Map<string, BlockModel>): void {
+    for (const id of this.multiExpandedBlockIds) {
+      this.collapseOneBlock(id, blocks)
+    }
+    this.multiExpandedBlockIds.clear()
+  }
+
+  /**
+   * 是否处于多 block 展开模式
+   */
+  isMultiExpanded(): boolean {
+    return this.multiExpandedBlockIds.size > 0
+  }
+
+  /**
+   * 指定 block 是否处于多 block 展开模式
+   */
+  isBlockMultiExpanded(blockId: string): boolean {
+    return this.multiExpandedBlockIds.has(blockId)
+  }
+
+  /**
+   * 收起单个 block（内部辅助方法）
+   */
+  private collapseOneBlock(blockId: string, blocks: Map<string, BlockModel>): void {
+    const blockEl = this.nodes.get(blockId)
+    if (!blockEl) return
+    const block = blocks.get(blockId)
+    if (block) {
+      const fragment = renderBlock(block, false)
+      const tempWrapper = document.createElement('div')
+      tempWrapper.appendChild(fragment)
+      blockEl.replaceChildren(...Array.from(tempWrapper.childNodes))
+    }
+    blockEl.classList.remove('md-block-expanded')
+  }
+
+  /**
+   * 根据 raw offset 在指定 block 中找到对应的文本节点和偏移量
+   * 返回 { node, offset } 对，用于构建 Selection/Range
+   */
+  private resolveRawOffsetInBlock(blockId: string, rawOffset: number): { node: Text; offset: number } | null {
+    const blockEl = this.nodes.get(blockId)
+    if (!blockEl) return null
+
+    const walker = document.createTreeWalker(
+      blockEl,
+      NodeFilter.SHOW_TEXT,
+      null
+    )
+
+    let accumulated = 0
+    let textNode: Text | null
+    while ((textNode = walker.nextNode() as Text)) {
+      const len = textNode.textContent?.length ?? 0
+      if (accumulated + len >= rawOffset) {
+        const localOffset = rawOffset - accumulated
+        return { node: textNode, offset: Math.min(localOffset, len) }
+      }
+      accumulated += len
+    }
+
+    // fallback：放到最后一个文本节点的末尾
+    const allTextNodes: Text[] = []
+    const walker2 = document.createTreeWalker(blockEl, NodeFilter.SHOW_TEXT, null)
+    let tn: Text | null
+    while ((tn = walker2.nextNode() as Text)) {
+      allTextNodes.push(tn)
+    }
+    if (allTextNodes.length > 0) {
+      const last = allTextNodes[allTextNodes.length - 1]
+      return { node: last, offset: last.textContent?.length ?? 0 }
+    }
+
+    return null
+  }
+
+  /**
+   * 根据 anchor 和 focus 的 block ID + raw offset 重建跨 block 选区
+   * 用于展开所有 block 后恢复精确的选区位置
+   */
+  setSelectionByRawOffsets(
+    anchorBlockId: string, anchorRawOffset: number,
+    focusBlockId: string, focusRawOffset: number
+  ): void {
+    const anchorPos = this.resolveRawOffsetInBlock(anchorBlockId, anchorRawOffset)
+    const focusPos = this.resolveRawOffsetInBlock(focusBlockId, focusRawOffset)
+    if (!anchorPos || !focusPos) return
+
+    const sel = window.getSelection()
+    if (!sel) return
+
+    // 先 collapse 到 anchor 位置，然后 extend 到 focus 位置
+    // 这种方式可以正确处理正向和反向选区
+    const range = document.createRange()
+    range.setStart(anchorPos.node, anchorPos.offset)
+    range.collapse(true)
+    sel.removeAllRanges()
+    sel.addRange(range)
+    sel.extend(focusPos.node, focusPos.offset)
+  }
+
+  /**
+   * 在多个 block 之间创建选区（从 startBlockId 开头到 endBlockId 末尾）
+   * 用于展开所有 block 后重建选区
+   * @param reversed 是否为反向选区（从下往上选取），默认 false
+   */
+  selectBlockRange(startBlockId: string, endBlockId: string, reversed: boolean = false): void {
+    const startEl = this.nodes.get(startBlockId)
+    const endEl = this.nodes.get(endBlockId)
+    if (!startEl || !endEl) return
+
+    // 找到起始 block 的第一个文本节点
+    const startWalker = document.createTreeWalker(startEl, NodeFilter.SHOW_TEXT, null)
+    const firstText = startWalker.nextNode() as Text | null
+    if (!firstText) return
+
+    // 找到结束 block 的最后一个文本节点
+    const endWalker = document.createTreeWalker(endEl, NodeFilter.SHOW_TEXT, null)
+    let lastText: Text | null = null
+    let t: Node | null
+    while ((t = endWalker.nextNode())) {
+      lastText = t as Text
+    }
+    if (!lastText) return
+
+    const sel = window.getSelection()
+    if (!sel) return
+
+    if (reversed) {
+      // 反向选区：anchor 在末尾（下方 block），focus 在开头（上方 block）
+      // 先 collapse 到末尾位置，然后 extend 到开头位置
+      const range = document.createRange()
+      range.setStart(lastText, lastText.textContent?.length ?? 0)
+      range.collapse(true)
+      sel.removeAllRanges()
+      sel.addRange(range)
+      sel.extend(firstText, 0)
+    } else {
+      // 正向选区：从开头到末尾
+      const range = document.createRange()
+      range.setStart(firstText, 0)
+      range.setEnd(lastText, lastText.textContent?.length ?? 0)
+      sel.removeAllRanges()
+      sel.addRange(range)
+    }
+  }
 
   /**
    * 展开指定 block 的所有标记符
@@ -656,6 +875,20 @@ export class DOMController {
     // 恢复光标位置
     if (cursorInfo) {
       this.restoreCursorInBlock(blockEl, cursorInfo)
+    } else {
+      // 无法保存光标位置（如代码块、空行等特殊 block）
+      // 将光标放到 md-inline-content 中的第一个文本节点的开头
+      const ic = blockEl.querySelector('.md-inline-content')
+      if (ic) {
+        const walker = document.createTreeWalker(ic, NodeFilter.SHOW_TEXT, null)
+        const firstText = walker.nextNode() as Text | null
+        if (firstText) {
+          const range = document.createRange()
+          range.setStart(firstText, 0)
+          range.collapse(true)
+          applyRange(range)
+        }
+      }
     }
   }
 

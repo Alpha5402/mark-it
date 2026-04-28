@@ -27,7 +27,6 @@ export class DocumentController {
     const index = this.getIndex(id)
     if (index === null) 
       return null
-    console.log(this.lines[index])
     return this.lines[index]
   }
 
