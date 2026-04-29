@@ -1,5 +1,5 @@
 
-import { BlockModel, InlineModel, ListItemBlock, HeadingBlock, BlockquoteBlock, CodeBlock, TextInline, INLINE_FLAG } from "../types"
+import { BlockModel, InlineModel, ListItemBlock, HeadingBlock, BlockquoteBlock, CodeBlock, TableBlock, TextInline, INLINE_FLAG } from "../types"
 import { parseLine, inlineParse } from "./parse"
 import { initialTokenize, tokenizeByLine, uid } from "./tokenize"
 import { BlockMatchResult, matchListItem, matchHeading } from "./matcher"
@@ -72,6 +72,17 @@ export class DocumentController {
     } else if (block.type === 'code-block') {
       const cb = block as CodeBlock
       return '```' + cb.language + '\n' + cb.code + '\n```'
+    } else if (block.type === 'table') {
+      const tb = block as TableBlock
+      const headerRow = '| ' + tb.headers.join(' | ') + ' |'
+      const separatorRow = '| ' + tb.aligns.map(a => {
+        if (a === 'center') return ':---:'
+        if (a === 'right') return '---:'
+        if (a === 'left') return ':---'
+        return '---'
+      }).join(' | ') + ' |'
+      const dataRows = tb.rows.map(row => '| ' + row.join(' | ') + ' |')
+      return [headerRow, separatorRow, ...dataRows].join('\n')
     }
 
     // 3. inline 内容（包含 inline 标记符）
@@ -159,6 +170,43 @@ export class DocumentController {
         }
         this.blocks = newBlocksMap
         
+        return { kind: 'code-block-degrade', from: block, lines: newBlocks }
+      }
+    }
+
+    // 表格特殊处理：类似代码块，如果编辑后不再匹配表格结构，按行拆分退化为多个 block
+    if (block.type === 'table') {
+      const tableLines = newRawText.split('\n')
+      const isValidTable = tableLines.length >= 2 &&
+        /^\|/.test(tableLines[0].trim()) &&
+        /^\|[\s:]*-+/.test(tableLines[1].trim())
+
+      if (isValidTable) {
+        // 仍然是合法的表格，重新解析
+        const line = tokenizeByLine(newRawText, block.id)
+        const newBlock = parseLine(line)
+        this.blocks.set(blockId, newBlock)
+        return { kind: 'block-transform', from: block, to: newBlock }
+      } else {
+        // 表格结构被破坏，按行拆分
+        const lines = newRawText.split('\n')
+        const newBlocks: BlockModel[] = []
+        for (let i = 0; i < lines.length; i++) {
+          const line = tokenizeByLine(lines[i], i === 0 ? block.id : undefined)
+          const parsed = parseLine(line)
+          newBlocks.push(parsed)
+        }
+        const newBlocksMap = new Map<string, BlockModel>()
+        for (const [id, b] of this.blocks) {
+          if (id === blockId) {
+            for (const nb of newBlocks) {
+              newBlocksMap.set(nb.id, nb)
+            }
+          } else {
+            newBlocksMap.set(id, b)
+          }
+        }
+        this.blocks = newBlocksMap
         return { kind: 'code-block-degrade', from: block, lines: newBlocks }
       }
     }

@@ -29,16 +29,34 @@ const App: React.FC = () => {
 		1. 这是一个有序列表
 		2. 这是一个有序列表
 
+- [ ] 这是一个未完成的任务
+- [x] 这是一个已完成的任务
+- [ ] 还有一个待办事项
+- [x] 已经搞定的事情
+
 这是一个包含了**加粗**、*斜体*、_斜体_、~~删除线~~、==高亮==、[超链接](https://www.baidu.com)的文本。啊啊啊啊啊啊 saki 酱，saki 酱，saki 酱，saki 酱，saki 酱，saki 酱，saki 酱，saki 酱，saki 酱，saki 酱，saki 酱
+
+这是一张图片：![Mark It Logo](https://via.placeholder.com/200x100?text=Mark+It)
 
 ---
 
 > 这是一段引用文本
 > 引用的**第二行**
 
+| 功能 | 状态 | 备注 |
+| :--- | :---: | ---: |
+| 快捷键 | ✅ | Ctrl+B/I/K |
+| 任务列表 | ✅ | checkbox 交互 |
+| 表格 | ✅ | 支持对齐 |
+| 图片 | ✅ | 内联渲染 |
+
 \`\`\`javascript
 function hello() {
   console.log("Hello, World!")
+  return {
+    name: "Mark It",
+    version: "1.0.0"
+  }
 }
 \`\`\``;
   

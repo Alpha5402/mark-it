@@ -92,6 +92,17 @@ export interface CodeBlock extends BlockModel {
   code: string        // 代码内容（原始文本，不做 inline 解析）
 }
 
+export interface TableBlock extends BlockModel {
+  id: string
+  type: 'table'
+  /** 表头行的单元格内容（纯文本） */
+  headers: string[]
+  /** 对齐方式：'left' | 'center' | 'right' | 'default' */
+  aligns: ('left' | 'center' | 'right' | 'default')[]
+  /** 数据行，每行是一个单元格数组 */
+  rows: string[][]
+}
+
 export interface DivideUnit {
   node: Node
   offset: number

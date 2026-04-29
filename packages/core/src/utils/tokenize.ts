@@ -23,6 +23,20 @@ function matchCodeFence(line: string): { marker: string; language: string } | nu
   return { marker: match[1], language: match[2].trim() }
 }
 
+/**
+ * 检测一行是否是表格行（以 | 开头或包含 | 分隔）
+ */
+function isTableRow(line: string): boolean {
+  return /^\|/.test(line.trim()) && /\|$/.test(line.trim())
+}
+
+/**
+ * 检测一行是否是表格分隔行（如 |---|---|）
+ */
+function isTableSeparator(line: string): boolean {
+  return /^\|[\s:]*-+[\s:]*(\|[\s:]*-+[\s:]*)*\|$/.test(line.trim())
+}
+
 export function initialTokenize(content: string): RawLine[] {
   const raws = content.split('\n')
   const result: RawLine[] = []
@@ -62,6 +76,21 @@ export function initialTokenize(content: string): RawLine[] {
         result.push(tokenizeByLine(raws[i]))
         i++
       }
+    } else if (
+      isTableRow(raws[i]) &&
+      i + 1 < raws.length && isTableSeparator(raws[i + 1])
+    ) {
+      // 检测到表格：表头行 + 分隔行 + 数据行...
+      const tableLines: string[] = [raws[i], raws[i + 1]]
+      let j = i + 2
+      while (j < raws.length && isTableRow(raws[j])) {
+        tableLines.push(raws[j])
+        j++
+      }
+      // 将整个表格合并为一个 RawLine，行之间用 \n 连接
+      const fullRaw = tableLines.join('\n')
+      result.push({ id: uid(), raw: fullRaw, leading: '' })
+      i = j
     } else {
       result.push(tokenizeByLine(raws[i]))
       i++

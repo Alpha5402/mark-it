@@ -1,4 +1,4 @@
-import { BlockModel, InlineModel, INLINE_FLAG, HeadingBlock, ListItemBlock, BlockquoteBlock, CodeBlock } from "../types"
+import { BlockModel, InlineModel, INLINE_FLAG, HeadingBlock, ListItemBlock, BlockquoteBlock, CodeBlock, TableBlock } from "../types"
 import Prism from 'prismjs'
 
 /**
@@ -271,15 +271,76 @@ export const renderBlock = (block: BlockModel, expanded: boolean = false): Docum
           lineSpan.className = 'md-code-line'
           lineSpan.innerHTML = lineHtml || '\u200B' // 空行用零宽空格占位
           code.appendChild(lineSpan)
-          // 最后一行不加换行
-          if (idx < lines.length - 1) {
-            code.appendChild(document.createTextNode('\n'))
-          }
         })
         pre.appendChild(code)
       }
 
       wrapper.appendChild(pre)
+      frag.appendChild(wrapper)
+      break
+    }
+    case 'table': {
+      const tableBlock = block as TableBlock
+      const wrapper = document.createElement('div')
+      wrapper.className = 'md-table-wrapper'
+
+      if (expanded) {
+        // 展开模式：显示原始 Markdown 表格文本
+        const content = document.createElement('div')
+        content.className = 'md-inline-content md-table-content'
+        // 重建 raw text
+        const headerRow = '| ' + tableBlock.headers.join(' | ') + ' |'
+        const sepRow = '| ' + tableBlock.aligns.map(a => {
+          if (a === 'center') return ':---:'
+          if (a === 'right') return '---:'
+          if (a === 'left') return ':---'
+          return '---'
+        }).join(' | ') + ' |'
+        const dataRows = tableBlock.rows.map(row => '| ' + row.join(' | ') + ' |')
+        const fullText = [headerRow, sepRow, ...dataRows].join('\n')
+        content.appendChild(document.createTextNode(fullText))
+        wrapper.appendChild(content)
+      } else {
+        // 非展开模式：渲染为 HTML <table>
+        const table = document.createElement('table')
+        table.className = 'md-table'
+
+        // 表头
+        const thead = document.createElement('thead')
+        const headerTr = document.createElement('tr')
+        tableBlock.headers.forEach((header, idx) => {
+          const th = document.createElement('th')
+          th.textContent = header
+          const align = tableBlock.aligns[idx]
+          if (align && align !== 'default') th.style.textAlign = align
+          headerTr.appendChild(th)
+        })
+        thead.appendChild(headerTr)
+        table.appendChild(thead)
+
+        // 表体
+        const tbody = document.createElement('tbody')
+        tableBlock.rows.forEach(row => {
+          const tr = document.createElement('tr')
+          row.forEach((cell, idx) => {
+            const td = document.createElement('td')
+            td.textContent = cell
+            const align = tableBlock.aligns[idx]
+            if (align && align !== 'default') td.style.textAlign = align
+            tr.appendChild(td)
+          })
+          tbody.appendChild(tr)
+        })
+        table.appendChild(tbody)
+
+        wrapper.appendChild(table)
+        // 零宽空格确保浏览器 selection 能正确落在此 block 上
+        const anchor = document.createElement('span')
+        anchor.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden'
+        anchor.appendChild(document.createTextNode('\u200B'))
+        wrapper.appendChild(anchor)
+      }
+
       frag.appendChild(wrapper)
       break
     }

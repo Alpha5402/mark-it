@@ -27,6 +27,12 @@ export enum EditorActionType {
   Indent = 'indent',
   /** Shift+Tab 反缩进 */
   Outdent = 'outdent',
+  /** 拖拽文件（图片等）到编辑区 */
+  Drop = 'drop',
+  /** 点击链接 */
+  LinkClick = 'link-click',
+  /** 鼠标悬停图片 */
+  ImageHover = 'image-hover',
 
   DomMutated = 'dom-mutated',
 
@@ -52,6 +58,12 @@ export interface EditorActionContext {
 
   /** DOM 变化（仅 MutationObserver 使用） */
   mutations?: MutationRecord[]
+
+  /** 拖拽的文件列表 */
+  files?: FileList | null
+
+  /** 被点击的链接元素 */
+  linkElement?: HTMLAnchorElement | null
 
   timestamp: number
 }
@@ -104,6 +116,11 @@ export class EventController {
     this.root.addEventListener('compositionstart', this.onCompositionStart)
     this.root.addEventListener('compositionupdate', this.onCompositionUpdate)
     this.root.addEventListener('compositionend', this.onCompositionEnd)
+
+    this.root.addEventListener('dragover', this.onDragOver)
+    this.root.addEventListener('drop', this.onDrop)
+    this.root.addEventListener('mousedown', this.onMouseDown)
+    this.root.addEventListener('mouseover', this.onMouseOver)
   }
 
   private unbind() {
@@ -119,6 +136,11 @@ export class EventController {
     this.root.removeEventListener('compositionstart', this.onCompositionStart)
     this.root.removeEventListener('compositionupdate', this.onCompositionUpdate)
     this.root.removeEventListener('compositionend', this.onCompositionEnd)
+
+    this.root.removeEventListener('dragover', this.onDragOver)
+    this.root.removeEventListener('drop', this.onDrop)
+    this.root.removeEventListener('mousedown', this.onMouseDown)
+    this.root.removeEventListener('mouseover', this.onMouseOver)
   }
 
   // -------------------------
@@ -462,6 +484,84 @@ export class EventController {
     this.emit(EditorActionType.CompositionEnd, e, {
       data: e.data
     })
+  }
+
+  // -------------------------
+  // Drag & Drop
+  // -------------------------
+
+  private onDragOver = (e: DragEvent) => {
+    e.preventDefault()
+  }
+
+  private onDrop = (e: DragEvent) => {
+    e.preventDefault()
+    const files = e.dataTransfer?.files
+    if (files && files.length > 0) {
+      this.stickyX = null
+      this.emit(EditorActionType.Drop, e, { files })
+    }
+  }
+
+  // -------------------------
+  // MouseDown（Cmd+点击跳转链接）
+  // -------------------------
+
+  private onMouseDown = (e: MouseEvent) => {
+    const target = e.target as HTMLElement
+    if (!target) return
+
+    // Cmd（Mac）或 Ctrl（Windows/Linux）+ 左键点击链接 → 跳转
+    if ((e.metaKey || e.ctrlKey) && e.button === 0) {
+      const linkEl = target.closest('a.md-link') as HTMLAnchorElement | null
+      if (linkEl && this.root.contains(linkEl)) {
+        e.preventDefault()
+        e.stopPropagation()
+        const href = linkEl.getAttribute('href') || linkEl.href || ''
+        if (href) {
+          window.open(href, '_blank')
+        }
+      }
+    }
+  }
+
+  // -------------------------
+  // MouseOver（链接 hover 弹窗）
+  // -------------------------
+
+  private onMouseOver = (e: MouseEvent) => {
+    const target = e.target as HTMLElement
+    if (!target) return
+
+    // 链接 hover
+    const linkEl = target.closest('a.md-link') as HTMLAnchorElement | null
+    if (linkEl && this.root.contains(linkEl)) {
+      const rect = linkEl.getBoundingClientRect()
+      const href = linkEl.getAttribute('href') || ''
+      const text = linkEl.textContent || ''
+      const blockEl = linkEl.closest('.md-line-block') as HTMLElement | null
+      const blockId = blockEl?.dataset?.blockId || ''
+
+      this.emit(EditorActionType.LinkClick, e, {
+        linkElement: linkEl,
+        data: JSON.stringify({ href, text, blockId, rect: { left: rect.left, top: rect.top, bottom: rect.bottom, right: rect.right } })
+      })
+      return
+    }
+
+    // 图片 hover
+    if (target.tagName === 'IMG' && target.classList.contains('md-image') && this.root.contains(target)) {
+      const imgEl = target as HTMLImageElement
+      const rect = imgEl.getBoundingClientRect()
+      const src = imgEl.getAttribute('src') || ''
+      const alt = imgEl.getAttribute('alt') || ''
+      const blockEl = imgEl.closest('.md-line-block') as HTMLElement | null
+      const blockId = blockEl?.dataset?.blockId || ''
+
+      this.emit(EditorActionType.ImageHover, e, {
+        data: JSON.stringify({ src, alt, blockId, rect: { left: rect.left, top: rect.top, bottom: rect.bottom, right: rect.right } })
+      })
+    }
   }
 }
 

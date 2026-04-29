@@ -171,6 +171,13 @@ hr {
 
 .md-link {
   color: #267AE9;
+  text-decoration: none;
+  cursor: default;
+}
+
+.md-link:hover {
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .md-link:visited {
@@ -499,6 +506,43 @@ hr {
 .md-list-item.md-task-done .md-inline-content {
   text-decoration: line-through;
   color: #999;
+}
+
+/* ========== 表格样式 ========== */
+.md-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  margin: 4px 0;
+}
+
+.md-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.md-table th,
+.md-table td {
+  border: 1px solid #d0d0d0;
+  padding: 8px 12px;
+}
+
+.md-table th {
+  background-color: #f5f5f5;
+  font-weight: 600;
+}
+
+.md-table tbody tr:hover {
+  background-color: rgba(18, 71, 245, 0.05);
+}
+
+/* 展开模式的表格原始文本 */
+.md-table-content {
+  font-family: 'Maple Mono', 'Consolas', 'Monaco', monospace;
+  font-size: 13px;
+  white-space: pre;
+  color: #555;
 }
 
 /* ========== Prism.js 语法高亮 token 样式 ========== */

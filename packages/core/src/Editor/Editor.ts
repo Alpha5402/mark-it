@@ -4,7 +4,7 @@ import { DOMScheduler } from '../utils/DOMScheduler';
 import { HistoryManager, type CursorInfo } from '../utils/HistoryManager';
 import { EditorView } from './EditorView';
 import { EditorActionType, EventController, type EditorActionContext, type SelectionSnapshot } from './EditorEventController';
-import { BlockModel, BlockVisualState, ListItemBlock, INLINE_FLAG, HeadingBlock, BlockquoteBlock, CodeBlock, InlineModel } from '../types';
+import { BlockModel, BlockVisualState, ListItemBlock, INLINE_FLAG, HeadingBlock, BlockquoteBlock, CodeBlock, TableBlock, InlineModel } from '../types';
 
 export class Editor {
   view: EditorView
@@ -123,7 +123,8 @@ export class Editor {
       type === EditorActionType.CompositionEnd ||
       type === EditorActionType.FormatToggle ||
       type === EditorActionType.Indent ||
-      type === EditorActionType.Outdent
+      type === EditorActionType.Outdent ||
+      type === EditorActionType.Drop
     )
     if (isMutatingAction) {
       const cursorInfo = this.getCurrentCursorInfo(selection)
@@ -635,6 +636,37 @@ export class Editor {
         if (offset === null) return
         this.scheduler.handleInsertLineBreak(block.id, offset)
       }
+    }
+
+    // ========== 图片拖拽上传处理 ==========
+    if (type === EditorActionType.Drop) {
+      const files = action.files
+      if (files && files.length > 0) {
+        this.handleImageDrop(selection, files)
+      }
+      return
+    }
+
+    // ========== 链接 hover 弹窗处理 ==========
+    if (type === EditorActionType.LinkClick) {
+      if (data) {
+        try {
+          const linkInfo = JSON.parse(data)
+          this.handleLinkHover(linkInfo, action.linkElement ?? null)
+        } catch {}
+      }
+      return
+    }
+
+    // ========== 图片 hover 弹窗处理 ==========
+    if (type === EditorActionType.ImageHover) {
+      if (data) {
+        try {
+          const imageInfo = JSON.parse(data)
+          this.handleImageHover(imageInfo)
+        } catch {}
+      }
+      return
     }
 
     // ========== 格式化快捷键处理 ==========
@@ -1738,6 +1770,420 @@ export class Editor {
       this.applyRawReconcile(block, newRawText, cursorRawOffset)
     }
   }
+
+  /**
+   * 处理图片拖拽上传
+   * 将拖拽的图片文件转换为 base64 data URL，插入 Markdown 图片语法
+   */
+  private handleImageDrop(selection: SelectionSnapshot | null, files: FileList) {
+    // 筛选图片文件
+    const imageFiles: File[] = []
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      if (file.type.startsWith('image/')) {
+        imageFiles.push(file)
+      }
+    }
+    if (imageFiles.length === 0) return
+
+    // 逐个读取图片文件并插入
+    const promises = imageFiles.map(file => {
+      return new Promise<string>((resolve) => {
+        const reader = new FileReader()
+        reader.onload = () => {
+          const dataUrl = reader.result as string
+          const alt = file.name.replace(/\.[^.]+$/, '') // 文件名去掉扩展名作为 alt
+          resolve(`![${alt}](${dataUrl})`)
+        }
+        reader.onerror = () => resolve('')
+        reader.readAsDataURL(file)
+      })
+    })
+
+    Promise.all(promises).then(markdownImages => {
+      const validImages = markdownImages.filter(s => s.length > 0)
+      if (validImages.length === 0) return
+
+      // 获取当前光标位置
+      const currentSelection = this.controller['captureSelection']?.() ?? selection
+      if (!currentSelection || !currentSelection.anchorNode) return
+
+      const blockId = getIdFromBlock(currentSelection.anchorNode)
+      const block = this.doc.getBlock(blockId)
+      const blockEl = this.dom.getNodeById(blockId)
+      if (!block || !blockEl) return
+
+      const isExpanded = this.dom.getExpandedBlockId() === blockId
+      const rawText = this.doc.getRawText(blockId)
+
+      // 计算插入位置
+      let rawOffset: number | null
+      if (isExpanded) {
+        rawOffset = computeRawOffset(blockEl, currentSelection.anchorNode!, currentSelection.anchorOffset)
+      } else {
+        rawOffset = rawText.length // 非展开模式，插入到行尾
+      }
+      if (rawOffset === null) rawOffset = rawText.length
+
+      // 如果是空行，直接替换；否则在光标位置插入
+      const insertText = validImages.join('\n')
+      if (rawText.trim() === '') {
+        // 空行：直接用图片语法替换
+        this.applyRawReconcile(block, insertText, insertText.length)
+      } else {
+        // 非空行：在光标位置插入（如果多张图片需要换行处理）
+        if (validImages.length === 1) {
+          const newRawText = rawText.slice(0, rawOffset) + insertText + rawText.slice(rawOffset)
+          this.applyRawReconcile(block, newRawText, rawOffset + insertText.length)
+        } else {
+          // 多张图片：在当前行后依次创建新行
+          const lines = [rawText.slice(0, rawOffset) + validImages[0] + rawText.slice(rawOffset)]
+          for (let i = 1; i < validImages.length; i++) {
+            lines.push(validImages[i])
+          }
+          // 使用类似多行粘贴的方式处理
+          this.handlePasteMultiLine(block, blockEl, currentSelection, lines, isExpanded)
+        }
+      }
+
+      this.notifyContentChange()
+    })
+  }
+
+  /**
+   * 处理链接 hover——显示编辑弹窗
+   * 鼠标悬停在链接上时弹出一个浮层，可编辑 URL 和文本
+   */
+  private handleLinkHover(
+    linkInfo: { href: string; text: string; blockId: string; rect: { left: number; top: number; bottom: number; right: number } },
+    linkElement: HTMLAnchorElement | null
+  ) {
+    // 如果已存在弹窗，不重复创建
+    const existingPopup = this.view.container.querySelector('.md-link-popup')
+    if (existingPopup) return
+
+    const { href, text, blockId, rect } = linkInfo
+    const containerRect = this.view.container.getBoundingClientRect()
+
+    // 创建弹窗容器
+    const popup = document.createElement('div')
+    popup.className = 'md-link-popup'
+    popup.style.cssText = `
+      position: absolute;
+      left: ${rect.left - containerRect.left}px;
+      top: ${rect.bottom - containerRect.top + 4}px;
+      z-index: 1000;
+      background: #fff;
+      border: 1px solid #d0d0d0;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      padding: 12px;
+      min-width: 300px;
+      font-size: 13px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    `
+
+    // URL 显示行
+    const urlRow = document.createElement('div')
+    urlRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 8px;'
+    const urlIcon = document.createElement('span')
+    urlIcon.textContent = '🔗'
+    urlIcon.style.cssText = 'flex-shrink: 0; font-size: 14px;'
+    urlRow.appendChild(urlIcon)
+    const urlInput = document.createElement('input')
+    urlInput.type = 'text'
+    urlInput.value = href
+    urlInput.placeholder = '链接地址'
+    urlInput.style.cssText = 'flex: 1; border: 1px solid #e0e0e0; border-radius: 4px; padding: 4px 8px; font-size: 13px; outline: none; font-family: "Maple Mono", Consolas, monospace; color: #267AE9;'
+    urlRow.appendChild(urlInput)
+    popup.appendChild(urlRow)
+
+    // 文本显示行
+    const textRow = document.createElement('div')
+    textRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 10px;'
+    const textIcon = document.createElement('span')
+    textIcon.textContent = '📝'
+    textIcon.style.cssText = 'flex-shrink: 0; font-size: 14px;'
+    textRow.appendChild(textIcon)
+    const textInput = document.createElement('input')
+    textInput.type = 'text'
+    textInput.value = text
+    textInput.placeholder = '链接文本'
+    textInput.style.cssText = 'flex: 1; border: 1px solid #e0e0e0; border-radius: 4px; padding: 4px 8px; font-size: 13px; outline: none;'
+    textRow.appendChild(textInput)
+    popup.appendChild(textRow)
+
+    // 按钮行
+    const btnRow = document.createElement('div')
+    btnRow.style.cssText = 'display: flex; justify-content: flex-end; gap: 8px;'
+
+    const openBtn = document.createElement('button')
+    openBtn.textContent = '打开链接'
+    openBtn.style.cssText = 'padding: 4px 12px; border: 1px solid #d0d0d0; border-radius: 4px; background: #f8f8f8; cursor: pointer; font-size: 12px;'
+    openBtn.addEventListener('click', () => {
+      const url = urlInput.value.trim()
+      if (url) window.open(url, '_blank')
+    })
+    btnRow.appendChild(openBtn)
+
+    const saveBtn = document.createElement('button')
+    saveBtn.textContent = '保存修改'
+    saveBtn.style.cssText = 'padding: 4px 12px; border: none; border-radius: 4px; background: #267AE9; color: #fff; cursor: pointer; font-size: 12px;'
+    saveBtn.addEventListener('click', () => {
+      const newHref = urlInput.value.trim()
+      const newText = textInput.value.trim()
+      if (newHref && newText) {
+        this.updateLinkByInfo(blockId, text, href, newText, newHref)
+      }
+      popup.remove()
+    })
+    btnRow.appendChild(saveBtn)
+    popup.appendChild(btnRow)
+
+    // 关闭逻辑：鼠标离开弹窗 + 链接元素区域时关闭
+    let closeTimer: ReturnType<typeof setTimeout> | null = null
+
+    const scheduleClose = () => {
+      if (closeTimer) clearTimeout(closeTimer)
+      closeTimer = setTimeout(() => {
+        popup.remove()
+        cleanup()
+      }, 300) // 300ms 延迟，给用户从链接移到弹窗的缓冲时间
+    }
+
+    const cancelClose = () => {
+      if (closeTimer) {
+        clearTimeout(closeTimer)
+        closeTimer = null
+      }
+    }
+
+    // 弹窗的鼠标事件
+    popup.addEventListener('mouseenter', cancelClose)
+    popup.addEventListener('mouseleave', scheduleClose)
+
+    // 链接元素的鼠标事件（如果元素仍在 DOM 中）
+    if (linkElement && this.view.container.contains(linkElement)) {
+      linkElement.addEventListener('mouseleave', scheduleClose)
+      linkElement.addEventListener('mouseenter', cancelClose)
+    } else {
+      // 链接元素不在了（可能已展开），启动关闭定时器
+      scheduleClose()
+    }
+
+    // 点击弹窗内输入框时，阻止冒泡以防止编辑器展开/收起
+    popup.addEventListener('mousedown', (e) => {
+      e.stopPropagation()
+      cancelClose() // 正在交互，不要关闭
+    })
+
+    const cleanup = () => {
+      if (linkElement) {
+        linkElement.removeEventListener('mouseleave', scheduleClose)
+        linkElement.removeEventListener('mouseenter', cancelClose)
+      }
+    }
+
+    // 添加到容器
+    this.view.container.style.position = 'relative'
+    this.view.container.appendChild(popup)
+  }
+
+  /**
+   * 通过 blockId 和旧文本/URL 更新链接
+   */
+  private updateLinkByInfo(blockId: string, oldText: string, oldHref: string, newText: string, newHref: string) {
+    const block = this.doc.getBlock(blockId)
+    if (!block) return
+
+    const rawText = this.doc.getRawText(blockId)
+
+    const oldLink = `[${oldText}](${oldHref})`
+    const newLink = `[${newText}](${newHref})`
+
+    const idx = rawText.indexOf(oldLink)
+    if (idx === -1) return
+
+    const newRawText = rawText.slice(0, idx) + newLink + rawText.slice(idx + oldLink.length)
+
+    // 保存快照用于 undo
+    const cursorInfo = this.getCurrentCursorInfo(
+      this.controller['captureSelection']?.() ?? null
+    )
+    this.history.pushSnapshot(this.doc.blocks, cursorInfo)
+
+    // 应用更改
+    const effect = this.doc.reconcileFromRawText(blockId, newRawText)
+    if (!effect) return
+    if (effect.kind === 'code-block-degrade') return
+    const targetBlock = effect.kind === 'block-transform' ? effect.to : effect.block
+    if (effect.kind === 'block-transform') {
+      this.dom.replaceBlock(effect.from, effect.to)
+    } else {
+      this.dom.replaceBlock(targetBlock, targetBlock)
+    }
+
+    this.notifyContentChange()
+  }
+
+  /**
+   * 处理图片 hover——显示编辑弹窗
+   * 鼠标悬停在图片上时弹出浮层，可编辑 src 和 alt
+   */
+  private handleImageHover(
+    imageInfo: { src: string; alt: string; blockId: string; rect: { left: number; top: number; bottom: number; right: number } }
+  ) {
+    // 如果已存在弹窗，不重复创建
+    const existingPopup = this.view.container.querySelector('.md-image-popup')
+    if (existingPopup) return
+
+    const { src, alt, blockId, rect } = imageInfo
+    const containerRect = this.view.container.getBoundingClientRect()
+
+    const popup = document.createElement('div')
+    popup.className = 'md-image-popup'
+    popup.style.cssText = `
+      position: absolute;
+      left: ${rect.left - containerRect.left}px;
+      top: ${rect.bottom - containerRect.top + 4}px;
+      z-index: 1000;
+      background: #fff;
+      border: 1px solid #d0d0d0;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      padding: 12px;
+      min-width: 300px;
+      font-size: 13px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    `
+
+    // 图片地址行
+    const srcRow = document.createElement('div')
+    srcRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 8px;'
+    const srcIcon = document.createElement('span')
+    srcIcon.textContent = '🖼️'
+    srcIcon.style.cssText = 'flex-shrink: 0; font-size: 14px;'
+    srcRow.appendChild(srcIcon)
+    const srcInput = document.createElement('input')
+    srcInput.type = 'text'
+    srcInput.value = src
+    srcInput.placeholder = '图片地址'
+    srcInput.style.cssText = 'flex: 1; border: 1px solid #e0e0e0; border-radius: 4px; padding: 4px 8px; font-size: 13px; outline: none; font-family: "Maple Mono", Consolas, monospace; color: #267AE9;'
+    srcRow.appendChild(srcInput)
+    popup.appendChild(srcRow)
+
+    // Alt 文本行
+    const altRow = document.createElement('div')
+    altRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 10px;'
+    const altIcon = document.createElement('span')
+    altIcon.textContent = '📝'
+    altIcon.style.cssText = 'flex-shrink: 0; font-size: 14px;'
+    altRow.appendChild(altIcon)
+    const altInput = document.createElement('input')
+    altInput.type = 'text'
+    altInput.value = alt
+    altInput.placeholder = '替代文本'
+    altInput.style.cssText = 'flex: 1; border: 1px solid #e0e0e0; border-radius: 4px; padding: 4px 8px; font-size: 13px; outline: none;'
+    altRow.appendChild(altInput)
+    popup.appendChild(altRow)
+
+    // 按钮行
+    const btnRow = document.createElement('div')
+    btnRow.style.cssText = 'display: flex; justify-content: flex-end; gap: 8px;'
+
+    const openBtn = document.createElement('button')
+    openBtn.textContent = '查看原图'
+    openBtn.style.cssText = 'padding: 4px 12px; border: 1px solid #d0d0d0; border-radius: 4px; background: #f8f8f8; cursor: pointer; font-size: 12px;'
+    openBtn.addEventListener('click', () => {
+      const url = srcInput.value.trim()
+      if (url) window.open(url, '_blank')
+    })
+    btnRow.appendChild(openBtn)
+
+    const saveBtn = document.createElement('button')
+    saveBtn.textContent = '保存修改'
+    saveBtn.style.cssText = 'padding: 4px 12px; border: none; border-radius: 4px; background: #267AE9; color: #fff; cursor: pointer; font-size: 12px;'
+    saveBtn.addEventListener('click', () => {
+      const newSrc = srcInput.value.trim()
+      const newAlt = altInput.value
+      if (newSrc) {
+        this.updateImageByInfo(blockId, alt, src, newAlt, newSrc)
+      }
+      popup.remove()
+    })
+    btnRow.appendChild(saveBtn)
+    popup.appendChild(btnRow)
+
+    // 关闭逻辑
+    let closeTimer: ReturnType<typeof setTimeout> | null = null
+
+    const scheduleClose = () => {
+      if (closeTimer) clearTimeout(closeTimer)
+      closeTimer = setTimeout(() => {
+        popup.remove()
+      }, 300)
+    }
+
+    const cancelClose = () => {
+      if (closeTimer) {
+        clearTimeout(closeTimer)
+        closeTimer = null
+      }
+    }
+
+    popup.addEventListener('mouseenter', cancelClose)
+    popup.addEventListener('mouseleave', scheduleClose)
+
+    // 找到对应的 img 元素绑定 mouseleave
+    const imgEl = this.view.container.querySelector(`.md-line-block[data-block-id="${blockId}"] img.md-image`) as HTMLElement | null
+    if (imgEl) {
+      imgEl.addEventListener('mouseleave', scheduleClose)
+      imgEl.addEventListener('mouseenter', cancelClose)
+    }
+
+    popup.addEventListener('mousedown', (e) => {
+      e.stopPropagation()
+      cancelClose()
+    })
+
+    this.view.container.style.position = 'relative'
+    this.view.container.appendChild(popup)
+  }
+
+  /**
+   * 通过 blockId 和旧 alt/src 更新图片
+   */
+  private updateImageByInfo(blockId: string, oldAlt: string, oldSrc: string, newAlt: string, newSrc: string) {
+    const block = this.doc.getBlock(blockId)
+    if (!block) return
+
+    const rawText = this.doc.getRawText(blockId)
+
+    const oldImage = `![${oldAlt}](${oldSrc})`
+    const newImage = `![${newAlt}](${newSrc})`
+
+    const idx = rawText.indexOf(oldImage)
+    if (idx === -1) return
+
+    const newRawText = rawText.slice(0, idx) + newImage + rawText.slice(idx + oldImage.length)
+
+    const cursorInfo = this.getCurrentCursorInfo(
+      this.controller['captureSelection']?.() ?? null
+    )
+    this.history.pushSnapshot(this.doc.blocks, cursorInfo)
+
+    const effect = this.doc.reconcileFromRawText(blockId, newRawText)
+    if (!effect) return
+    if (effect.kind === 'code-block-degrade') return
+    const targetBlock = effect.kind === 'block-transform' ? effect.to : effect.block
+    if (effect.kind === 'block-transform') {
+      this.dom.replaceBlock(effect.from, effect.to)
+    } else {
+      this.dom.replaceBlock(targetBlock, targetBlock)
+    }
+
+    this.notifyContentChange()
+  }
 }
 
 const getBlockAnchor = (node: Node): HTMLDivElement | null => {
@@ -1971,6 +2417,25 @@ function blockToHTML(block: BlockModel): string {
       const cb = block as CodeBlock
       const lang = cb.language ? ` class="language-${escapeHTML(cb.language)}"` : ''
       return `<pre><code${lang}>${escapeHTML(cb.code)}</code></pre>`
+    }
+    case 'table': {
+      const tb = block as TableBlock
+      let html = '<table>\n<thead>\n<tr>'
+      tb.headers.forEach((h, i) => {
+        const align = tb.aligns[i] && tb.aligns[i] !== 'default' ? ` style="text-align:${tb.aligns[i]}"` : ''
+        html += `<th${align}>${escapeHTML(h)}</th>`
+      })
+      html += '</tr>\n</thead>\n<tbody>\n'
+      tb.rows.forEach(row => {
+        html += '<tr>'
+        row.forEach((cell, i) => {
+          const align = tb.aligns[i] && tb.aligns[i] !== 'default' ? ` style="text-align:${tb.aligns[i]}"` : ''
+          html += `<td${align}>${escapeHTML(cell)}</td>`
+        })
+        html += '</tr>\n'
+      })
+      html += '</tbody>\n</table>'
+      return html
     }
     default:
       return `<p>${inlineToHTML(block.inline ?? [])}</p>`

@@ -1,4 +1,4 @@
-import { RawLine, BlockModel, InlineModel, INLINE_FLAG, HeadingBlock, ListItemBlock, BlockquoteBlock, CodeBlock } from "../types";
+import { RawLine, BlockModel, InlineModel, INLINE_FLAG, HeadingBlock, ListItemBlock, BlockquoteBlock, CodeBlock, TableBlock } from "../types";
 
 const TAB_WIDTH = 4
 
@@ -355,6 +355,42 @@ export function parseLine(line: RawLine): BlockModel {
       code: codeBlockMatch[3],
       inline: []
     } as CodeBlock
+  }
+
+  // 如果是表格（由 tokenize 阶段合并的多行 token）
+  const tableLines = raw.split('\n')
+  if (tableLines.length >= 2 && /^\|/.test(tableLines[0].trim()) && /^\|[\s:]*-+/.test(tableLines[1].trim())) {
+    const parseTableRow = (row: string): string[] => {
+      return row.trim()
+        .replace(/^\|/, '').replace(/\|$/, '')
+        .split('|')
+        .map(cell => cell.trim())
+    }
+
+    const headers = parseTableRow(tableLines[0])
+    const separatorCells = parseTableRow(tableLines[1])
+    const aligns: ('left' | 'center' | 'right' | 'default')[] = separatorCells.map(cell => {
+      const left = cell.startsWith(':')
+      const right = cell.endsWith(':')
+      if (left && right) return 'center'
+      if (right) return 'right'
+      if (left) return 'left'
+      return 'default'
+    })
+
+    const rows: string[][] = []
+    for (let r = 2; r < tableLines.length; r++) {
+      rows.push(parseTableRow(tableLines[r]))
+    }
+
+    return {
+      id: line.id,
+      type: 'table',
+      headers,
+      aligns,
+      rows,
+      inline: []
+    } as TableBlock
   }
 
   // 如果是引用

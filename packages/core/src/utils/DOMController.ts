@@ -1,4 +1,4 @@
-import { BlockModel, InlineModel, TextInline, LinkInline, BlockVisualState, DivideUnit } from "../types"
+import { BlockModel, InlineModel, TextInline, LinkInline, BlockVisualState, DivideUnit, TableBlock } from "../types"
 import { renderBlock, renderInlineBlock } from "./render"
 
 /**
@@ -858,6 +858,28 @@ export class DOMController {
     const blockEl = this.nodes.get(blockId)
     if (!blockEl || !block.inline) return
 
+    // 表格类型特殊处理：计算点击位置对应的 raw text 偏移
+    if (block.type === 'table') {
+      const rawOffset = this.computeTableClickRawOffset(blockEl, block as TableBlock)
+      
+      // 用展开模式重新渲染
+      const fragment = renderBlock(block, true)
+      const tempWrapper = document.createElement('div')
+      tempWrapper.appendChild(fragment)
+      blockEl.replaceChildren(...Array.from(tempWrapper.childNodes))
+      blockEl.classList.add('md-block-expanded')
+      this.expandedBlockId = blockId
+
+      // 用 raw offset 定位光标
+      if (rawOffset !== null) {
+        this.setCursorByRawOffset(blockId, rawOffset)
+      } else {
+        // fallback：放到第一个文本节点开头
+        this.placeCursorAtFirstText(blockEl)
+      }
+      return
+    }
+
     // 保存光标位置（语义偏移，排除标记符）
     const cursorInfo = this.saveCursorInBlock(blockEl)
 
@@ -877,19 +899,121 @@ export class DOMController {
       this.restoreCursorInBlock(blockEl, cursorInfo)
     } else {
       // 无法保存光标位置（如代码块、空行等特殊 block）
-      // 将光标放到 md-inline-content 中的第一个文本节点的开头
-      const ic = blockEl.querySelector('.md-inline-content')
-      if (ic) {
-        const walker = document.createTreeWalker(ic, NodeFilter.SHOW_TEXT, null)
-        const firstText = walker.nextNode() as Text | null
-        if (firstText) {
-          const range = document.createRange()
-          range.setStart(firstText, 0)
-          range.collapse(true)
-          applyRange(range)
-        }
+      this.placeCursorAtFirstText(blockEl)
+    }
+  }
+
+  /**
+   * 将光标放到 block 中第一个文本节点的开头
+   */
+  private placeCursorAtFirstText(blockEl: HTMLElement): void {
+    const ic = blockEl.querySelector('.md-inline-content') || blockEl.querySelector('.md-table-content')
+    if (ic) {
+      const walker = document.createTreeWalker(ic, NodeFilter.SHOW_TEXT, null)
+      const firstText = walker.nextNode() as Text | null
+      if (firstText) {
+        const range = document.createRange()
+        range.setStart(firstText, 0)
+        range.collapse(true)
+        applyRange(range)
       }
     }
+  }
+
+  /**
+   * 计算表格非展开模式下点击位置对应的 raw text 偏移
+   * 原理：找到 selection 所在的 <th>/<td>，确定行号和列号，
+   * 然后在 raw text 中定位到对应单元格的文本位置 + 单元格内偏移
+   */
+  private computeTableClickRawOffset(blockEl: HTMLElement, tableBlock: TableBlock): number | null {
+    const selection = window.getSelection()
+    if (!selection || !selection.anchorNode) return null
+    if (!blockEl.contains(selection.anchorNode)) return null
+
+    // 找到 selection 所在的 <td> 或 <th>
+    const anchorEl = selection.anchorNode instanceof Element 
+      ? selection.anchorNode 
+      : selection.anchorNode.parentElement
+    if (!anchorEl) return null
+
+    const cell = anchorEl.closest('td, th')
+    if (!cell) return null
+
+    const row = cell.parentElement as HTMLTableRowElement | null
+    if (!row) return null
+
+    // 计算列号
+    const colIndex = Array.from(row.cells).indexOf(cell as HTMLTableCellElement)
+    if (colIndex === -1) return null
+
+    // 计算行号（0 = 表头行，1+ = 数据行）
+    const isHeader = cell.tagName === 'TH'
+    let rowIndex: number
+    if (isHeader) {
+      rowIndex = 0
+    } else {
+      const tbody = cell.closest('tbody')
+      if (!tbody) return null
+      const allRows = Array.from(tbody.rows)
+      rowIndex = allRows.indexOf(row as HTMLTableRowElement)
+      if (rowIndex === -1) return null
+      rowIndex += 2 // +2 因为 raw text 中第 0 行是表头，第 1 行是分隔行
+    }
+
+    // 计算单元格内的字符偏移
+    let cellCharOffset = 0
+    if (selection.anchorNode.nodeType === Node.TEXT_NODE) {
+      cellCharOffset = selection.anchorOffset
+    }
+
+    // 重建 raw text 的各行
+    const rawLines: string[] = []
+    // 第 0 行：表头
+    rawLines.push('| ' + tableBlock.headers.join(' | ') + ' |')
+    // 第 1 行：分隔行
+    rawLines.push('| ' + tableBlock.aligns.map(a => {
+      if (a === 'center') return ':---:'
+      if (a === 'right') return '---:'
+      if (a === 'left') return ':---'
+      return '---'
+    }).join(' | ') + ' |')
+    // 数据行
+    for (const dataRow of tableBlock.rows) {
+      rawLines.push('| ' + dataRow.join(' | ') + ' |')
+    }
+
+    // 计算 raw offset
+    // 先累加前面行的长度（每行末尾 +1 for \n）
+    let rawOffset = 0
+    for (let i = 0; i < rowIndex; i++) {
+      rawOffset += rawLines[i].length + 1 // +1 for \n
+    }
+
+    // 定位到目标行中目标列的位置
+    const targetLine = rawLines[rowIndex]
+    if (!targetLine) return null
+
+    // 解析目标行：跳过 "| " 前缀，然后按 " | " 分隔定位到目标列
+    let posInLine = 2 // 跳过 "| "
+    for (let c = 0; c < colIndex; c++) {
+      // 获取当前列的文本宽度
+      let cellText: string
+      if (rowIndex === 0) {
+        cellText = tableBlock.headers[c] ?? ''
+      } else if (rowIndex === 1) {
+        // 分隔行
+        const a = tableBlock.aligns[c]
+        cellText = a === 'center' ? ':---:' : a === 'right' ? '---:' : a === 'left' ? ':---' : '---'
+      } else {
+        cellText = (tableBlock.rows[rowIndex - 2] ?? [])[c] ?? ''
+      }
+      posInLine += cellText.length + 3 // cell text + " | "
+    }
+
+    // 加上单元格内的字符偏移
+    rawOffset += posInLine + cellCharOffset
+
+    return rawOffset
   }
 
   /**
