@@ -249,6 +249,30 @@ hr {
   box-sizing: border-box;
 }
 
+.md-metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 8px 0 4px;
+  font-size: 0.85em;
+  color: #6b7280;
+  user-select: text;
+}
+
+.md-metadata-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.md-metadata-label {
+  color: #9ca3af;
+}
+
+.md-metadata-value {
+  color: #4b5563;
+}
+
 .active-line {
   background-color: rgba(180, 213, 255, 0.4);
   border-radius: 4px;

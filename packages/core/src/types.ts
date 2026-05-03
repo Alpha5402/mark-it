@@ -109,3 +109,9 @@ export interface DivideUnit {
   offset: number
   type?: string
 }
+
+/** 文档元数据，用于在标题下方展示作者、更新时间等信息 */
+export interface DocumentMetadata {
+  /** 元数据条目，每项为一个 label-value 对 */
+  items: { label: string; value: string }[]
+}

@@ -4,7 +4,7 @@ import { DOMScheduler } from '../utils/DOMScheduler';
 import { HistoryManager, type CursorInfo } from '../utils/HistoryManager';
 import { EditorView } from './EditorView';
 import { EditorActionType, EventController, type EditorActionContext, type SelectionSnapshot } from './EditorEventController';
-import { BlockModel, BlockVisualState, ListItemBlock, INLINE_FLAG, HeadingBlock, BlockquoteBlock, CodeBlock, TableBlock, InlineModel } from '../types';
+import { BlockModel, BlockVisualState, ListItemBlock, INLINE_FLAG, HeadingBlock, BlockquoteBlock, CodeBlock, TableBlock, InlineModel, type DocumentMetadata } from '../types';
 
 export class Editor {
   view: EditorView
@@ -36,9 +36,10 @@ export class Editor {
   constructor(
     previewContainer: HTMLDivElement,
     documentTitle: string = '未命名',
-    initialContent: string = ''
+    initialContent: string = '',
+    metadata?: DocumentMetadata
   ) {
-    this.view = new EditorView(previewContainer, documentTitle)
+    this.view = new EditorView(previewContainer, documentTitle, metadata)
 
     this.doc = new DocumentController(initialContent)
     this.history = new HistoryManager()

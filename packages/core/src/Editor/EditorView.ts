@@ -1,12 +1,15 @@
+import type { DocumentMetadata } from '../types'
+
 export class EditorView {
   container: HTMLDivElement
   document: HTMLDivElement
   title: HTMLDivElement
+  metadata: HTMLDivElement | null = null
   area: HTMLDivElement
   constructor(
     rendererContainer: HTMLDivElement, 
-    title: string = ''
-
+    title: string = '',
+    metadata?: DocumentMetadata
   ) {
     this.container = rendererContainer;
 
@@ -19,6 +22,21 @@ export class EditorView {
     this.title.contentEditable = 'true'
     this.title.innerText = title
     this.document.appendChild(this.title)
+
+    // 渲染元数据区域（作者、更新时间等）
+    if (metadata && metadata.items.length > 0) {
+      this.metadata = document.createElement('div')
+      this.metadata.className = 'md-metadata'
+      this.metadata.contentEditable = 'false'
+      for (const item of metadata.items) {
+        const span = document.createElement('span')
+        span.className = 'md-metadata-item'
+        span.innerHTML = `<span class="md-metadata-label">${item.label}</span><span class="md-metadata-value">${item.value}</span>`
+        this.metadata.appendChild(span)
+      }
+      this.document.appendChild(this.metadata)
+    }
+
     this.document.appendChild(document.createElement('hr'))
     
     this.area = document.createElement('div');
