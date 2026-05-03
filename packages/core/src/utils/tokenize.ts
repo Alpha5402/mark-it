@@ -55,7 +55,7 @@ export function initialTokenize(content: string): RawLine[] {
 
       while (j < raws.length) {
         const closeFence = matchCodeFence(raws[j])
-        if (closeFence && closeFence.marker[0] === openMarkerChar && closeFence.marker.length >= openMarkerLen && closeFence.language === '') {
+        if (closeFence && closeFence.marker[0] === openMarkerChar && closeFence.marker.length === openMarkerLen && closeFence.language === '') {
           // 找到匹配的关闭标记
           closed = true
           j++
@@ -68,7 +68,9 @@ export function initialTokenize(content: string): RawLine[] {
       if (closed) {
         // 将整个围栏代码块合并为一个特殊的 RawLine
         // raw 格式：```language\ncode_line1\ncode_line2\n```
-        const fullRaw = raws[i] + '\n' + codeLines.join('\n') + '\n' + raws[j - 1]
+        const fullRaw = codeLines.length === 0
+          ? raws[i] + '\n' + raws[j - 1]
+          : raws[i] + '\n' + codeLines.join('\n') + '\n' + raws[j - 1]
         result.push({ id: uid(), raw: fullRaw, leading: '' })
         i = j
       } else {

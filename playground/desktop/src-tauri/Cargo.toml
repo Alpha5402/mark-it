@@ -1,0 +1,21 @@
+[package]
+name = "mark-it-desktop"
+version = "0.1.0"
+description = "Desktop markdown editor powered by Mark It core"
+authors = ["Mark It"]
+license = "ISC"
+repository = ""
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "mark_it_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.0", features = [] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

@@ -27,6 +27,16 @@ function isInsideStructMarker(node: Node): boolean {
   return false
 }
 
+function isInsideRawPlaceholder(node: Node): boolean {
+  let el = node instanceof Element ? node : node.parentElement
+  while (el) {
+    if (el instanceof HTMLElement && el.dataset.rawPlaceholder) return true
+    if (el.classList.contains('md-line-block')) return false
+    el = el.parentElement
+  }
+  return false
+}
+
 export class DOMController {
   private nodes = new Map<string, HTMLDivElement>()
   private highLightedBlocks = new Set<HTMLElement>()
@@ -368,6 +378,12 @@ export class DOMController {
     const blockEl = this.nodes.get(blockId)
     if (!blockEl) return
 
+    const placeholderRange = resolveRawPlaceholderRange(blockEl, rawOffset)
+    if (placeholderRange) {
+      applyRange(placeholderRange)
+      return
+    }
+
     const walker = document.createTreeWalker(
       blockEl,
       NodeFilter.SHOW_TEXT,
@@ -377,6 +393,7 @@ export class DOMController {
     let accumulated = 0
     let textNode: Text | null
     while ((textNode = walker.nextNode() as Text)) {
+      if (isInsideRawPlaceholder(textNode)) continue
       const len = textNode.textContent?.length ?? 0
       if (accumulated + len >= rawOffset) {
         const localOffset = rawOffset - accumulated
@@ -394,6 +411,7 @@ export class DOMController {
     const walker2 = document.createTreeWalker(blockEl, NodeFilter.SHOW_TEXT, null)
     let tn: Text | null
     while ((tn = walker2.nextNode() as Text)) {
+      if (isInsideRawPlaceholder(tn)) continue
       allTextNodes.push(tn)
     }
     if (allTextNodes.length > 0) {
@@ -1378,6 +1396,29 @@ export function resolveDivideRange(
       return
     }
 
+    if (el.classList.contains('md-code-block')) {
+      const codeContent = el.querySelector('.md-code-block-content') ?? el.querySelector('code')
+      if (codeContent) {
+        const walker = document.createTreeWalker(
+          codeContent,
+          NodeFilter.SHOW_TEXT,
+          null
+        )
+        const textNodes: Text[] = []
+        let node: Text | null
+        while ((node = walker.nextNode() as Text)) {
+          textNodes.push(node)
+        }
+
+        const lastTextNode = textNodes[textNodes.length - 1]
+        for (const textNode of textNodes) {
+          const isNotLast = textNode !== lastTextNode
+          pushTextSlots(textNode, isNotLast)
+        }
+      }
+      return
+    }
+
     if (el.classList.contains('md-inline-content')) {
       const walker = document.createTreeWalker(
         el,
@@ -1466,6 +1507,30 @@ function collectCandidates(blockEl: HTMLElement): Candidate[] {
     result.push({ range, rect: rects[0] })
   }
   return result
+}
+
+function resolveRawPlaceholderRange(blockEl: HTMLElement, rawOffset: number): Range | null {
+  const placeholder = blockEl.querySelector('[data-raw-placeholder]') as HTMLElement | null
+  const textNode = placeholder?.firstChild
+  if (!placeholder || !(textNode instanceof Text)) return null
+
+  const walker = document.createTreeWalker(blockEl, NodeFilter.SHOW_TEXT, null)
+  let accumulated = 0
+  let node: Text | null
+  while ((node = walker.nextNode() as Text)) {
+    if (node === textNode) {
+      if (accumulated !== rawOffset) return null
+      const range = document.createRange()
+      range.setStart(textNode, 0)
+      range.collapse(true)
+      return range
+    }
+    if (!isInsideRawPlaceholder(node)) {
+      accumulated += node.textContent?.length ?? 0
+    }
+  }
+
+  return null
 }
 
 function groupByLine(candidates: Candidate[], tolerance: number): Candidate[][] {
