@@ -1,0 +1,55 @@
+{
+  "name": "@mark-it/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "electron:dev": "electron electron/main.cjs",
+    "app:pack": "pnpm build && electron-builder --mac dir",
+    "app:dist": "pnpm build && electron-builder --mac dmg",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build"
+  },
+  "dependencies": {
+    "@mark-it/core": "workspace:*",
+    "prismjs": "^1.30.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.2.0",
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@vitejs/plugin-react": "^4.0.0",
+    "electron": "^35.0.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.0.0",
+    "vite": "^4.3.0"
+  },
+  "main": "electron/main.cjs",
+  "build": {
+    "appId": "studio.mark-it.desktop",
+    "productName": "Mark It Desktop",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "!electron/MarkIt.iconset/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "icon": "electron/icon.icns",
+      "category": "public.app-category.productivity",
+      "target": [
+        "dir",
+        "dmg"
+      ]
+    }
+  }
+}

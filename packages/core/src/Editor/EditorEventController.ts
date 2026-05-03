@@ -300,6 +300,7 @@ export class EventController {
     if (this.inInputTransaction) return
 
     // 拦截左右键：跳过 struct-marker 与相邻元素之间的 DOM 边界幽灵位置
+    // 同时补齐浏览器默认编辑体验：Shift 扩展选区，Option/Cmd 按词/行边界移动。
     // 注意：struct-marker 内部的字符位置是正常的，用户应该能在其中移动
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       e.preventDefault()
@@ -307,23 +308,31 @@ export class EventController {
       if (!sel) return
 
       const direction = e.key === 'ArrowRight' ? 'forward' : 'backward'
+      const alter = e.shiftKey ? 'extend' : 'move'
+      const granularity = e.metaKey ? 'lineboundary' : e.altKey ? 'word' : 'character'
+
+      if (granularity !== 'character') {
+        sel.modify(alter, direction, granularity)
+        this.stickyX = null
+        return
+      }
 
       // 获取移动前的视觉位置
-      let prevRect = getCaretVisualRect(sel)
+      let prevRect = getSelectionFocusRect(sel)
 
       // 循环移动，跳过所有幽灵位置
       const MAX_ITERATIONS = 20
       for (let i = 0; i < MAX_ITERATIONS; i++) {
-        sel.modify('move', direction, 'character')
-        if (!sel.anchorNode) break
+        sel.modify(alter, direction, granularity)
+        if (!sel.focusNode) break
 
         // 情况 1：光标落在 ELEMENT_NODE 上（DOM 边界幽灵位置），继续移动
-        if (sel.anchorNode.nodeType === Node.ELEMENT_NODE) {
+        if (sel.focusNode.nodeType === Node.ELEMENT_NODE) {
           continue
         }
 
         // 情况 2：光标在文本节点内，检查视觉位置是否发生了变化
-        const curRect = getCaretVisualRect(sel)
+        const curRect = getSelectionFocusRect(sel)
         if (prevRect && curRect) {
           // 如果视觉位置没有变化（x 坐标差 < 1px），说明是幽灵位置，继续移动
           if (Math.abs(curRect.left - prevRect.left) < 1 && Math.abs(curRect.top - prevRect.top) < 1) {
@@ -601,6 +610,17 @@ const getIdFromBlock = (node: Node): string => {
 function getCaretVisualRect(sel: Selection): DOMRect | null {
   if (sel.rangeCount === 0) return null
   const range = sel.getRangeAt(0).cloneRange()
+  range.collapse(true)
+  const rects = range.getClientRects()
+  if (rects.length > 0) return rects[0]
+  return range.getBoundingClientRect()
+}
+
+function getSelectionFocusRect(sel: Selection): DOMRect | null {
+  if (!sel.focusNode) return getCaretVisualRect(sel)
+
+  const range = document.createRange()
+  range.setStart(sel.focusNode, sel.focusOffset)
   range.collapse(true)
   const rects = range.getClientRects()
   if (rects.length > 0) return rects[0]

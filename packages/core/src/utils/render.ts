@@ -21,6 +21,39 @@ const escapeHtml = (str: string): string => {
     .replace(/'/g, '&#039;')
 }
 
+const appendHighlightedCodeLines = (
+  parent: HTMLElement,
+  code: string,
+  language: string,
+  codeLineCount: number,
+  preserveRawNewlines: boolean = false
+): void => {
+  if (code === '' && codeLineCount === 0) return
+
+  if (code === '' && codeLineCount > 0) {
+    const lineSpan = document.createElement('span')
+    lineSpan.className = 'md-code-line md-code-line-placeholder'
+    lineSpan.dataset.rawPlaceholder = 'code-empty'
+    lineSpan.textContent = '\u200B'
+    parent.appendChild(lineSpan)
+    return
+  }
+
+  const highlighted = highlightCode(code, language)
+  const lines = highlighted.split('\n')
+
+  lines.forEach((lineHtml, idx) => {
+    const lineSpan = document.createElement('span')
+    lineSpan.className = 'md-code-line'
+    lineSpan.innerHTML = lineHtml || '\u200B'
+    parent.appendChild(lineSpan)
+
+    if (preserveRawNewlines && idx < lines.length - 1) {
+      parent.appendChild(document.createTextNode('\n'))
+    }
+  })
+}
+
 export const renderBlock = (block: BlockModel, expanded: boolean = false): DocumentFragment => {
   const frag = document.createDocumentFragment();
 
@@ -226,33 +259,29 @@ export const renderBlock = (block: BlockModel, expanded: boolean = false): Docum
       const pre = document.createElement('pre')
 
       if (expanded) {
+        wrapper.classList.add('md-code-block-expanded')
+        const codeLineCount = codeBlock.codeLineCount ?? (codeBlock.code === '' ? 0 : codeBlock.code.split('\n').length)
+
         // 展开模式：保留 pre 样式，对代码部分应用语法高亮
         const content = document.createElement('div')
         content.className = 'md-inline-content md-code-block-content'
 
         // 开头的 ```language
         const openFence = document.createElement('span')
-        openFence.className = 'md-code-fence-marker'
+        openFence.className = 'md-code-fence-marker md-code-fence-open'
         openFence.textContent = '```' + codeBlock.language
         content.appendChild(openFence)
 
         // 换行
         content.appendChild(document.createTextNode('\n'))
 
-        // 代码内容：使用 Prism.js 高亮
-        if (codeBlock.language && Prism.languages[codeBlock.language]) {
-          const codeSpan = document.createElement('span')
-          codeSpan.className = 'md-code-block-highlighted'
-          codeSpan.innerHTML = Prism.highlight(codeBlock.code, Prism.languages[codeBlock.language], codeBlock.language)
-          content.appendChild(codeSpan)
-        } else {
-          content.appendChild(document.createTextNode(codeBlock.code))
-        }
+        // 代码内容：使用 Prism.js 高亮，并在展开模式下保持行号
+        appendHighlightedCodeLines(content, codeBlock.code, codeBlock.language, codeLineCount, true)
 
         // 换行 + 结尾的 ```
         content.appendChild(document.createTextNode('\n'))
         const closeFence = document.createElement('span')
-        closeFence.className = 'md-code-fence-marker'
+        closeFence.className = 'md-code-fence-marker md-code-fence-close'
         closeFence.textContent = '```'
         content.appendChild(closeFence)
 
@@ -263,15 +292,8 @@ export const renderBlock = (block: BlockModel, expanded: boolean = false): Docum
         if (codeBlock.language) {
           code.className = `language-${codeBlock.language}`
         }
-        // 使用 Prism.js 做语法高亮后按行分割并包裹
-        const highlighted = highlightCode(codeBlock.code, codeBlock.language)
-        const lines = highlighted.split('\n')
-        lines.forEach((lineHtml, idx) => {
-          const lineSpan = document.createElement('span')
-          lineSpan.className = 'md-code-line'
-          lineSpan.innerHTML = lineHtml || '\u200B' // 空行用零宽空格占位
-          code.appendChild(lineSpan)
-        })
+        const codeLineCount = codeBlock.codeLineCount ?? (codeBlock.code === '' ? 0 : codeBlock.code.split('\n').length)
+        appendHighlightedCodeLines(code, codeBlock.code, codeBlock.language, codeLineCount)
         pre.appendChild(code)
       }
 

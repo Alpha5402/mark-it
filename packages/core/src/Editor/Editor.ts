@@ -206,6 +206,10 @@ export class Editor {
       // 当 block 处于展开模式时，所有输入都走全行 reconcile 路径
       // 因为展开模式下标记符是可见文本，任何输入都可能影响标记符的配对关系
       const isExpanded = this.dom.getExpandedBlockId() === block.id
+
+      if (this.tryHandleMarkdownAutoComplete(block, root, selection!, data ?? '', isExpanded)) {
+        return
+      }
       
       if (isExpanded) {
         // 展开模式：如果有选区，先删除选中内容
@@ -506,6 +510,15 @@ export class Editor {
         // 自动保持当前行的缩进
         if (currentBlock.type === 'code-block') {
           let effectiveOff = rawOffset ?? 0
+          const firstLineBreak = rawText.indexOf('\n')
+
+          // 光标在开头 fence / 语言标记行时，Enter 创建第 1 行空代码行。
+          if (firstLineBreak !== -1 && effectiveOff <= firstLineBreak) {
+            const newRawText = rawText.slice(0, firstLineBreak + 1) + '\n' + rawText.slice(firstLineBreak + 1)
+            this.applyRawReconcile(currentBlock, newRawText, firstLineBreak + 1)
+            return
+          }
+
           // 找到当前行的行首，提取缩进
           const lineStart = rawText.lastIndexOf('\n', effectiveOff - 1) + 1
           const currentLine = rawText.slice(lineStart, effectiveOff)
@@ -532,6 +545,9 @@ export class Editor {
         }
 
         if (rawOffset === null) return
+
+        const completedCodeBlock = this.tryCompleteCodeBlockFromOpeningFence(currentBlock, rawText, rawOffset)
+        if (completedCodeBlock) return
 
         // ========== 列表项 Enter 行为增强 ==========
         if (currentBlock.type === 'list-item') {
@@ -634,6 +650,9 @@ export class Editor {
       } else {
         const offset = computeSemanticOffset(root, selection!.anchorNode!, selection!.anchorOffset, this.doc.prefixOffset(block.id))
         if (offset === null) return
+        const rawText = this.doc.getRawText(block.id)
+        const completedCodeBlock = this.tryCompleteCodeBlockFromOpeningFence(block, rawText, offset)
+        if (completedCodeBlock) return
         this.scheduler.handleInsertLineBreak(block.id, offset)
       }
     }
@@ -1259,28 +1278,19 @@ export class Editor {
       return
     }
 
-    // 3. 自动补全检测：输入成对标记符时自动补全另一半
-    // 支持: ` `` ` -> ` `` `, * -> *, ** -> **, ~ -> ~, ~~ -> ~~, = -> =, == -> ==, [ -> ], ( -> )
-    const autoClosePairs: Record<string, string> = {
-      '`': '`', '*': '*', '~': '~', '=': '=', '[': ']', '(': ')'
-    }
-    const closeChar = autoClosePairs[text]
-    if (closeChar && rawOffset >= 0) {
-      // 检查光标后面是否已经有相同的关闭字符（避免重复补全）
-      const charAfter = rawText[rawOffset]
-      if (charAfter !== closeChar) {
-        // 自动插入关闭字符
-        const newRawText = rawText.slice(0, rawOffset) + text + closeChar + rawText.slice(rawOffset)
-        // 光标放在两个标记符中间
+    if (block.type === 'code-block' && (block as CodeBlock).code === '') {
+      const firstLineBreak = rawText.indexOf('\n')
+      if (firstLineBreak !== -1 && rawOffset === firstLineBreak + 1) {
+        const newRawText = rawText.slice(0, rawOffset) + text + '\n' + rawText.slice(rawOffset)
         this.applyRawReconcile(block, newRawText, rawOffset + text.length)
         return
       }
     }
 
-    // 4. 将字符插入到原始文本中
+    // 3. 将字符插入到原始文本中
     const newRawText = rawText.slice(0, rawOffset) + text + rawText.slice(rawOffset)
 
-    // 5. 全行 reconcile
+    // 4. 全行 reconcile
     this.applyRawReconcile(block, newRawText, rawOffset + text.length)
   }
 
@@ -1360,6 +1370,74 @@ export class Editor {
 
     // 用 rawOffset 在新 DOM 中定位光标
     this.dom.setCursorByRawOffset(targetBlock.id, cursorRawOffset)
+  }
+
+  private tryHandleMarkdownAutoComplete(
+    block: BlockModel,
+    root: HTMLElement,
+    selection: SelectionSnapshot,
+    data: string,
+    isExpanded: boolean
+  ): boolean {
+    if (!selection.isCollapsed || data.length !== 1) return false
+    if (block.type === 'code-block') return false
+
+    const rawText = this.doc.getRawText(block.id)
+    let rawOffset: number | null
+
+    if (block.type === 'blank') {
+      rawOffset = 0
+    } else if (isExpanded) {
+      rawOffset = computeRawOffset(root, selection.anchorNode!, selection.anchorOffset)
+    } else {
+      rawOffset = computeSemanticOffset(root, selection.anchorNode!, selection.anchorOffset, this.doc.prefixOffset(block.id))
+    }
+
+    if (rawOffset === null) return false
+
+    if (data === '`') {
+      const lineStart = rawText.lastIndexOf('\n', rawOffset - 1) + 1
+      const lineBeforeCursor = rawText.slice(lineStart, rawOffset)
+      const fenceIndent = lineBeforeCursor.match(/^(\s*)``$/)?.[1]
+
+      if (fenceIndent !== undefined && !isEscaped(rawText, rawOffset - 2)) {
+        const insertion = `${fenceIndent}\`\`\`\n${fenceIndent}\`\`\``
+        const newRawText = rawText.slice(0, lineStart) + insertion + rawText.slice(rawOffset)
+        this.applyRawReconcile(block, newRawText, lineStart + fenceIndent.length + 3)
+        return true
+      }
+
+      if (rawText[rawOffset] === '`' && !isEscaped(rawText, rawOffset)) {
+        this.dom.setCursorByRawOffset(block.id, rawOffset + 1)
+        return true
+      }
+    }
+
+    if (!isAutoPairCharacter(data) || isEscaped(rawText, rawOffset)) return false
+
+    const newRawText = rawText.slice(0, rawOffset) + data + data + rawText.slice(rawOffset)
+    this.applyRawReconcile(block, newRawText, rawOffset + 1)
+    return true
+  }
+
+  private tryCompleteCodeBlockFromOpeningFence(
+    block: BlockModel,
+    rawText: string,
+    rawOffset: number
+  ): boolean {
+    if (block.type === 'code-block') return false
+
+    const beforeRaw = rawText.slice(0, rawOffset)
+    const afterRaw = rawText.slice(rawOffset)
+    const openingFence = parseOpeningCodeFence(beforeRaw)
+    if (!openingFence) return false
+
+    const closingFence = afterRaw.length > 0 ? parseClosingCodeFence(afterRaw) : null
+    if (afterRaw.length > 0 && closingFence !== openingFence.marker) return false
+
+    const newRawText = beforeRaw + '\n\n' + (closingFence ?? openingFence.marker)
+    this.applyRawReconcile(block, newRawText, beforeRaw.length + 1)
+    return true
   }
 
   /**
@@ -2328,6 +2406,10 @@ function computeRawOffset(
   let rawOffset = 0
   let textNode: Text | null
   while ((textNode = walker.nextNode() as Text)) {
+    if (isInRawPlaceholderSpan(textNode)) {
+      if (textNode === anchorNode) return rawOffset
+      continue
+    }
     if (textNode === anchorNode) {
       return rawOffset + anchorOffset
     }
@@ -2356,6 +2438,39 @@ function getSelectionRawRange(
     start: Math.min(anchorOffset, focusOffset),
     end: Math.max(anchorOffset, focusOffset)
   }
+}
+
+function isAutoPairCharacter(char: string): boolean {
+  return char === '*' || char === '_' || char === '`'
+}
+
+function isEscaped(text: string, offset: number): boolean {
+  let slashCount = 0
+  for (let i = offset - 1; i >= 0 && text[i] === '\\'; i--) {
+    slashCount++
+  }
+  return slashCount % 2 === 1
+}
+
+function isInRawPlaceholderSpan(node: Node): boolean {
+  let el = node instanceof Element ? node : node.parentElement
+  while (el) {
+    if (el instanceof HTMLElement && el.dataset.rawPlaceholder) return true
+    if (el.classList.contains('md-line-block')) return false
+    el = el.parentElement
+  }
+  return false
+}
+
+function parseOpeningCodeFence(rawText: string): { marker: string } | null {
+  const match = rawText.match(/^(`{3,}|~{3,})[ \t]*(.*)$/)
+  if (!match) return null
+  return { marker: match[1] }
+}
+
+function parseClosingCodeFence(rawText: string): string | null {
+  const match = rawText.match(/^(`{3,}|~{3,})[ \t]*$/)
+  return match ? match[1] : null
 }
 
 /**

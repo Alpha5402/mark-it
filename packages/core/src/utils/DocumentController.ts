@@ -4,6 +4,26 @@ import { parseLine, inlineParse } from "./parse"
 import { initialTokenize, tokenizeByLine, uid } from "./tokenize"
 import { BlockMatchResult, matchListItem, matchHeading } from "./matcher"
 
+function parseFencedCodeRaw(rawText: string): { language: string; code: string; codeLineCount: number } | null {
+  const lines = rawText.split('\n')
+  if (lines.length < 2) return null
+
+  const openMatch = lines[0].match(/^(`{3,}|~{3,})[ \t]*(.*)$/)
+  if (!openMatch) return null
+
+  const fence = openMatch[1]
+  const closeLine = lines[lines.length - 1]
+  const closeMatch = closeLine.match(/^(`{3,}|~{3,})[ \t]*$/)
+  if (!closeMatch) return null
+  if (closeMatch[1] !== fence) return null
+
+  return {
+    language: openMatch[2].trim(),
+    code: lines.slice(1, -1).join('\n'),
+    codeLineCount: Math.max(0, lines.length - 2)
+  }
+}
+
 export class DocumentController {
   blocks = new Map<string, BlockModel>()
   
@@ -71,7 +91,9 @@ export class DocumentController {
       raw += '>'.repeat(bq.quoteDepth) + ' '
     } else if (block.type === 'code-block') {
       const cb = block as CodeBlock
-      return '```' + cb.language + '\n' + cb.code + '\n```'
+      const openFence = '```' + cb.language
+      const codeLineCount = cb.codeLineCount ?? (cb.code === '' ? 0 : cb.code.split('\n').length)
+      return codeLineCount === 0 ? openFence + '\n```' : openFence + '\n' + cb.code + '\n```'
     } else if (block.type === 'table') {
       const tb = block as TableBlock
       const headerRow = '| ' + tb.headers.join(' | ') + ' |'
@@ -129,18 +151,23 @@ export class DocumentController {
 
     // 代码块特殊处理：如果编辑后不再匹配代码块正则，按行拆分退化为多个 block
     if (block.type === 'code-block') {
-      const codeBlockMatch = newRawText.match(/^(`{3,}|~{3,})\s*(.*)\n([\s\S]*)\n\1\s*$/)
+      const codeBlockMatch = parseFencedCodeRaw(newRawText)
       if (codeBlockMatch) {
         // 仍然是合法的代码块，更新内容
         const newBlock: CodeBlock = {
           id: block.id,
           type: 'code-block',
-          language: codeBlockMatch[2].trim(),
-          code: codeBlockMatch[3],
+          language: codeBlockMatch.language,
+          code: codeBlockMatch.code,
+          codeLineCount: codeBlockMatch.codeLineCount,
           inline: []
         }
         this.blocks.set(blockId, newBlock)
-        if (newBlock.language !== (block as CodeBlock).language || newBlock.code !== (block as CodeBlock).code) {
+        if (
+          newBlock.language !== (block as CodeBlock).language ||
+          newBlock.code !== (block as CodeBlock).code ||
+          newBlock.codeLineCount !== (block as CodeBlock).codeLineCount
+        ) {
           return { kind: 'block-transform', from: block, to: newBlock }
         }
         return { kind: 'inline-update', block: newBlock }

@@ -90,6 +90,7 @@ export interface CodeBlock extends BlockModel {
   type: 'code-block'
   language: string    // 语言标注，如 'javascript'、'python'
   code: string        // 代码内容（原始文本，不做 inline 解析）
+  codeLineCount?: number // 代码内容行数；用于区分零行代码和一行空代码
 }
 
 export interface TableBlock extends BlockModel {
