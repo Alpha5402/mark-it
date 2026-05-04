@@ -21,6 +21,8 @@ export type InlineModel =
   | TextInline
   | LinkInline
   | ImageInline
+  | FootnoteRefInline
+  | MathInline
 
 export type TextInline = {
   type: 'text'
@@ -51,7 +53,7 @@ export type ImageInline = {
 
 export type BlockModel = {
   id: string
-  type: 'paragraph' | 'list-item' | 'heading' | 'hr' | 'blockquote' | 'code-block' | 'table' | 'image' | 'card' | 'blank'
+  type: 'paragraph' | 'list-item' | 'heading' | 'hr' | 'blockquote' | 'code-block' | 'table' | 'image' | 'card' | 'blank' | 'math-block'
   nesting?: number     // 缩进/嵌套
   inline?: InlineModel[]     // 对应文字内容
   children?: BlockModel[]     // 嵌套元素，例如表格行、列表子项
@@ -102,6 +104,36 @@ export interface TableBlock extends BlockModel {
   aligns: ('left' | 'center' | 'right' | 'default')[]
   /** 数据行，每行是一个单元格数组 */
   rows: string[][]
+}
+
+export type FootnoteRefInline = {
+  type: 'footnote-ref'
+  id: string          // 脚注标识符，如 "1" 或 "note"
+  marks: number
+  offset: number
+  dirty: boolean
+}
+
+/** 行内数学公式 $...$ */
+export type MathInline = {
+  type: 'math'
+  tex: string         // LaTeX 源码
+  marks: number
+  offset: number
+  dirty: boolean
+}
+
+/** 块级数学公式 $$...$$ */
+export interface MathBlock extends BlockModel {
+  id: string
+  type: 'math-block'
+  tex: string         // LaTeX 源码
+}
+
+export interface FootnoteDefBlock extends BlockModel {
+  id: string
+  type: 'paragraph'   // 复用 paragraph 类型，通过 footnoteId 区分
+  footnoteId: string  // 脚注标识符
 }
 
 export interface DivideUnit {

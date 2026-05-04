@@ -1,5 +1,5 @@
 
-import { BlockModel, InlineModel, ListItemBlock, HeadingBlock, BlockquoteBlock, CodeBlock, TableBlock, TextInline, INLINE_FLAG } from "../types"
+import { BlockModel, InlineModel, ListItemBlock, HeadingBlock, BlockquoteBlock, CodeBlock, TableBlock, TextInline, INLINE_FLAG, MathBlock, FootnoteDefBlock, FootnoteRefInline, MathInline } from "../types"
 import { parseLine, inlineParse } from "./parse"
 import { initialTokenize, tokenizeByLine, uid } from "./tokenize"
 import { BlockMatchResult, matchListItem, matchHeading } from "./matcher"
@@ -105,6 +105,15 @@ export class DocumentController {
       }).join(' | ') + ' |'
       const dataRows = tb.rows.map(row => '| ' + row.join(' | ') + ' |')
       return [headerRow, separatorRow, ...dataRows].join('\n')
+    } else if (block.type === 'math-block') {
+      const mb = block as MathBlock
+      return '$$\n' + mb.tex + '\n$$'
+    }
+
+    // 脚注定义块
+    if ('footnoteId' in block && (block as FootnoteDefBlock).footnoteId) {
+      const fnDef = block as FootnoteDefBlock
+      raw += `[^${fnDef.footnoteId}]: `
     }
 
     // 3. inline 内容（包含 inline 标记符）
@@ -132,6 +141,10 @@ export class DocumentController {
         result += `[${linkText}](${inline.href})`
       } else if (inline.type === 'image') {
         result += `![${inline.alt}](${inline.src})`
+      } else if (inline.type === 'footnote-ref') {
+        result += `[^${(inline as FootnoteRefInline).id}]`
+      } else if (inline.type === 'math') {
+        result += `$${(inline as MathInline).tex}$`
       }
     }
     return result
@@ -197,6 +210,52 @@ export class DocumentController {
         }
         this.blocks = newBlocksMap
         
+        return { kind: 'code-block-degrade', from: block, lines: newBlocks }
+      }
+    }
+
+    // 数学公式块特殊处理：类似代码块
+    if (block.type === 'math-block') {
+      // 检查编辑后是否仍然是合法的 $$...$$ 块
+      const mathLines = newRawText.split('\n')
+      const isValidMath = mathLines.length >= 2 &&
+        mathLines[0].trim() === '$$' &&
+        mathLines[mathLines.length - 1].trim() === '$$'
+
+      if (isValidMath) {
+        // 仍然是合法的数学公式块，更新内容
+        const tex = mathLines.slice(1, -1).join('\n')
+        const newBlock: MathBlock = {
+          id: block.id,
+          type: 'math-block',
+          tex,
+          inline: []
+        }
+        this.blocks.set(blockId, newBlock)
+        if (newBlock.tex !== (block as MathBlock).tex) {
+          return { kind: 'block-transform', from: block, to: newBlock }
+        }
+        return { kind: 'inline-update', block: newBlock }
+      } else {
+        // 数学公式块语法被破坏，按行拆分
+        const lines = newRawText.split('\n')
+        const newBlocks: BlockModel[] = []
+        for (let i = 0; i < lines.length; i++) {
+          const line = tokenizeByLine(lines[i], i === 0 ? block.id : undefined)
+          const parsed = parseLine(line)
+          newBlocks.push(parsed)
+        }
+        const newBlocksMap = new Map<string, BlockModel>()
+        for (const [id, b] of this.blocks) {
+          if (id === blockId) {
+            for (const nb of newBlocks) {
+              newBlocksMap.set(nb.id, nb)
+            }
+          } else {
+            newBlocksMap.set(id, b)
+          }
+        }
+        this.blocks = newBlocksMap
         return { kind: 'code-block-degrade', from: block, lines: newBlocks }
       }
     }

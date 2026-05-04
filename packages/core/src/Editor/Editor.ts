@@ -5,6 +5,7 @@ import { HistoryManager, type CursorInfo } from '../utils/HistoryManager';
 import { EditorView } from './EditorView';
 import { EditorActionType, EventController, type EditorActionContext, type SelectionSnapshot } from './EditorEventController';
 import { BlockModel, BlockVisualState, ListItemBlock, INLINE_FLAG, HeadingBlock, BlockquoteBlock, CodeBlock, TableBlock, InlineModel, type DocumentMetadata } from '../types';
+import { initialTokenize } from '../utils/tokenize';
 
 export class Editor {
   view: EditorView
@@ -263,7 +264,7 @@ export class Editor {
         const newRawText = pasteRawText.slice(0, range.start) + data + pasteRawText.slice(range.start)
         // 多行检测
         const lines = newRawText.split('\n')
-        if (lines.length <= 1 || collapsedBlock.type === 'code-block') {
+        if (lines.length <= 1 || collapsedBlock.type === 'code-block' || collapsedBlock.type === 'math-block') {
           this.applyRawReconcile(collapsedBlock, newRawText, range.start + data.length)
         } else {
           // 多行粘贴需要拆分处理
@@ -273,21 +274,26 @@ export class Editor {
           const afterCursor = pasteRawText.slice(range.start)
           const firstLineRaw = beforeCursor + pasteLines[0]
           const lastLineRaw = pasteLines[pasteLines.length - 1] + afterCursor
-          const firstEffect = this.doc.reconcileFromRawText(block.id, firstLineRaw.trim() === '' ? '' : firstLineRaw)
+
+          // 构造完整文本并使用 initialTokenize 识别多行结构
+          const fullPastedText = [firstLineRaw, ...pasteLines.slice(1, -1), lastLineRaw].join('\n')
+          const tokens = initialTokenize(fullPastedText)
+
+          const firstEffect = this.doc.reconcileFromRawText(block.id, tokens[0].raw.trim() === '' ? '' : tokens[0].raw)
           if (!firstEffect) return
           if (firstEffect.kind === 'code-block-degrade') return
           const updatedBlock = firstEffect.kind === 'block-transform' ? firstEffect.to : firstEffect.block
           this.dom.replaceBlock(collapsedBlock, updatedBlock)
           let prevBlock = updatedBlock
-          for (let i = 1; i < pasteLines.length - 1; i++) {
-            const nb = this.doc.createBlockFromRawText(pasteLines[i], prevBlock.id)
+          for (let i = 1; i < tokens.length; i++) {
+            const nb = this.doc.createBlockFromRawText(tokens[i].raw, prevBlock.id)
             this.dom.insertBlock(prevBlock, nb)
             prevBlock = nb
           }
-          const lastBlock = this.doc.createBlockFromRawText(lastLineRaw, prevBlock.id)
-          this.dom.insertBlock(prevBlock, lastBlock)
+          const lastBlock = prevBlock
           this.dom.renderBlockExpanded(lastBlock)
-          const cursorPos = lastLineRaw.length - afterCursor.length
+          const lastTokenRaw = this.doc.getRawText(lastBlock.id)
+          const cursorPos = lastTokenRaw.length - afterCursor.length
           this.dom.setCursorByRawOffset(lastBlock.id, Math.max(0, cursorPos))
           this.dom.clearHighlight()
           this.scheduler.highlightBlock(lastBlock.id, BlockVisualState.active)
@@ -307,6 +313,9 @@ export class Editor {
           if (offset === null) return
           this.scheduler.insertText(block.id, offset, data, offset + data.length)
         }
+      } else if (block.type === 'math-block' || block.type === 'code-block' || block.type === 'table') {
+        // 多行结构块内粘贴：直接插入，不拆分 block
+        this.handleInsertInMarker(block, root, selection!.anchorNode!, selection!.anchorOffset, data)
       } else {
         // 多行粘贴：第一行插入当前 block，其余行创建新 block
         this.handlePasteMultiLine(block, root, selection!, lines, isExpanded)
@@ -453,6 +462,10 @@ export class Editor {
           const blankBlock = { id: block.id, type: 'blank' as const, inline: [] as any[] }
           this.doc.blocks.set(block.id, blankBlock)
           this.dom.replaceBlock(block, blankBlock)
+          this.dom.forceResetExpanded()
+          this.dom.renderBlockExpanded(blankBlock)
+          this.dom.setCursorByRawOffset(blankBlock.id, 0)
+          this.skipNextSelectionAction = true
           return
         }
 
@@ -527,6 +540,23 @@ export class Editor {
           const indent = indentMatch ? indentMatch[1] : ''
           const newRawText = rawText.slice(0, effectiveOff) + '\n' + indent + rawText.slice(effectiveOff)
           this.applyRawReconcile(currentBlock, newRawText, effectiveOff + 1 + indent.length)
+          return
+        }
+
+        // 数学公式块换行：在内容中插入换行符，不拆分 block
+        if (currentBlock.type === 'math-block') {
+          let effectiveOff = rawOffset ?? 0
+          const firstLineBreak = rawText.indexOf('\n')
+
+          // 光标在开头 $$ 行时，Enter 在 $$ 后插入新行
+          if (firstLineBreak !== -1 && effectiveOff <= firstLineBreak) {
+            const newRawText = rawText.slice(0, firstLineBreak + 1) + '\n' + rawText.slice(firstLineBreak + 1)
+            this.applyRawReconcile(currentBlock, newRawText, firstLineBreak + 1)
+            return
+          }
+
+          const newRawText = rawText.slice(0, effectiveOff) + '\n' + rawText.slice(effectiveOff)
+          this.applyRawReconcile(currentBlock, newRawText, effectiveOff + 1)
           return
         }
 
@@ -685,6 +715,14 @@ export class Editor {
           const imageInfo = JSON.parse(data)
           this.handleImageHover(imageInfo)
         } catch {}
+      }
+      return
+    }
+
+    // ========== 脚注跳转处理 ==========
+    if (type === EditorActionType.FootnoteJump) {
+      if (data) {
+        this.handleFootnoteJump(data)
       }
       return
     }
@@ -877,42 +915,45 @@ export class Editor {
     const rawOffset = computeRawOffset(blockEl, selection.anchorNode!, selection.anchorOffset)
     if (rawOffset === null) return
 
-    // 2. 将第一行内容插入当前 block 的光标位置，
-    //    同时把光标之后的内容拼接到最后一行
+    // 2. 将光标前后内容与粘贴内容拼接，形成完整的多行文本
     const beforeCursor = rawText.slice(0, rawOffset)
     const afterCursor = rawText.slice(rawOffset)
     const firstLineRaw = beforeCursor + lines[0]
     const lastLineRaw = lines[lines.length - 1] + afterCursor
 
-    // 3. 收起展开状态
+    // 3. 构造完整的粘贴后文本，使用 initialTokenize 进行多行结构识别
+    //    这样代码块/公式块/表格等跨行结构能被正确合并
+    const fullPastedText = [firstLineRaw, ...lines.slice(1, -1), lastLineRaw].join('\n')
+    const tokens = initialTokenize(fullPastedText)
+
+    // 4. 收起展开状态
     if (isExpanded) {
       this.dom.collapseBlock(block)
       this.dom.forceResetExpanded()
     }
 
-    // 4. 用第一行内容更新当前 block
-    const effect = this.doc.reconcileFromRawText(block.id, firstLineRaw.trim() === '' ? '' : firstLineRaw)
+    // 5. 用第一个 token 更新当前 block
+    const firstToken = tokens[0]
+    const effect = this.doc.reconcileFromRawText(block.id, firstToken.raw.trim() === '' ? '' : firstToken.raw)
     if (!effect) return
     if (effect.kind === 'code-block-degrade') return
     const updatedBlock = effect.kind === 'block-transform' ? effect.to : effect.block
     this.dom.replaceBlock(block, updatedBlock)
 
-    // 5. 创建中间行的 block（如果超过两行）
+    // 6. 创建后续 token 对应的 block
     let prevBlock = updatedBlock
-    for (let i = 1; i < lines.length - 1; i++) {
-      const newBlock = this.doc.createBlockFromRawText(lines[i], prevBlock.id)
+    for (let i = 1; i < tokens.length; i++) {
+      const newBlock = this.doc.createBlockFromRawText(tokens[i].raw, prevBlock.id)
       this.dom.insertBlock(prevBlock, newBlock)
       prevBlock = newBlock
     }
 
-    // 6. 创建最后一行的 block
-    const lastBlock = this.doc.createBlockFromRawText(lastLineRaw, prevBlock.id)
-    this.dom.insertBlock(prevBlock, lastBlock)
-
     // 7. 展开最后一个 block 并定位光标
+    const lastBlock = prevBlock
     this.dom.renderBlockExpanded(lastBlock)
-    // 光标定位到粘贴内容末尾（即最后一行粘贴文本的末尾，afterCursor 之前）
-    const cursorRawOffset = lastLineRaw.length - afterCursor.length
+    // 光标定位到粘贴内容末尾（即最后一个 token 中，afterCursor 之前的位置）
+    const lastTokenRaw = this.doc.getRawText(lastBlock.id)
+    const cursorRawOffset = lastTokenRaw.length - afterCursor.length
     const lastPrefixOffset = this.doc.prefixOffset(lastBlock.id)
     this.dom.setCursorByRawOffset(lastBlock.id, Math.max(lastPrefixOffset, cursorRawOffset))
 
@@ -1179,6 +1220,63 @@ export class Editor {
     }
   }
 
+  // ========== 公开格式化 API ==========
+
+  /** 切换加粗格式 */
+  toggleBold(): void {
+    this.executeFormat('bold')
+  }
+
+  /** 切换斜体格式 */
+  toggleItalic(): void {
+    this.executeFormat('italic')
+  }
+
+  /** 切换删除线格式 */
+  toggleStrikethrough(): void {
+    this.executeFormat('strikethrough')
+  }
+
+  /** 切换行内代码格式 */
+  toggleCode(): void {
+    this.executeFormat('code')
+  }
+
+  /** 切换高亮格式 */
+  toggleHighlight(): void {
+    this.executeFormat('highlight')
+  }
+
+  /** 插入链接 */
+  insertLink(): void {
+    this.executeFormat('link')
+  }
+
+  /**
+   * 执行格式化操作（内部方法）
+   * 获取当前选区并调用 handleFormatToggle
+   */
+  private executeFormat(format: string): void {
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0) return
+    if (!this.view.area.contains(sel.anchorNode)) return
+
+    const selection: SelectionSnapshot = {
+      anchorNode: sel.anchorNode,
+      anchorOffset: sel.anchorOffset,
+      focusNode: sel.focusNode,
+      focusOffset: sel.focusOffset,
+      isCollapsed: sel.isCollapsed
+    }
+
+    // 保存快照用于 Undo
+    const cursorInfo = this.getCurrentCursorInfo(selection)
+    this.history.pushSnapshot(this.doc.blocks, cursorInfo)
+
+    this.handleFormatToggle(selection, format)
+    this.notifyContentChange()
+  }
+
   /**
    * 获取当前选区中的文本内容
    * 支持跨 Block 选中：收集选区覆盖的所有 block 的语义文本，用换行拼接
@@ -1381,7 +1479,7 @@ export class Editor {
     isExpanded: boolean
   ): boolean {
     if (!selection.isCollapsed || data.length !== 1) return false
-    if (block.type === 'code-block') return false
+    if (block.type === 'code-block' || block.type === 'math-block') return false
 
     const rawText = this.doc.getRawText(block.id)
     let rawOffset: number | null
@@ -1410,6 +1508,40 @@ export class Editor {
 
       if (rawText[rawOffset] === '`' && !isEscaped(rawText, rawOffset)) {
         this.dom.setCursorByRawOffset(block.id, rawOffset + 1)
+        return true
+      }
+    }
+
+    // 输入 $ 时的自动补全
+    if (data === '$') {
+      const lineStart = rawText.lastIndexOf('\n', rawOffset - 1) + 1
+      const lineEnd = rawText.indexOf('\n', rawOffset)
+      const lineBeforeCursor = rawText.slice(lineStart, rawOffset)
+      const lineAfterCursor = rawText.slice(rawOffset, lineEnd === -1 ? undefined : lineEnd)
+
+      // 检测是否形成 $$（块级公式）：光标前是行首空白+$，且光标后到行尾只有 $ 或为空
+      // 即整行将变成 $$，独占一行
+      const mathFenceIndent = lineBeforeCursor.match(/^(\s*)\$$/)?.[1]
+      if (mathFenceIndent !== undefined && !isEscaped(rawText, rawOffset - 1)
+        && (lineAfterCursor === '' || lineAfterCursor === '$')) {
+        // 生成 $$\n\n$$ 块级公式
+        const afterOffset = lineAfterCursor === '$' ? rawOffset + 1 : rawOffset
+        const insertion = `${mathFenceIndent}$$\n${mathFenceIndent}$$`
+        const newRawText = rawText.slice(0, lineStart) + insertion + rawText.slice(afterOffset)
+        this.applyRawReconcile(block, newRawText, lineStart + mathFenceIndent.length + 2 + 1)
+        return true
+      }
+
+      // 光标后面已有 $，跳过（避免重复插入）
+      if (rawText[rawOffset] === '$' && !isEscaped(rawText, rawOffset)) {
+        this.dom.setCursorByRawOffset(block.id, rawOffset + 1)
+        return true
+      }
+
+      // 行内公式：手动插入配对的 $$
+      if (!isEscaped(rawText, rawOffset)) {
+        const newRawText = rawText.slice(0, rawOffset) + '$$' + rawText.slice(rawOffset)
+        this.applyRawReconcile(block, newRawText, rawOffset + 1)
         return true
       }
     }
@@ -2103,6 +2235,47 @@ export class Editor {
     }
 
     this.notifyContentChange()
+  }
+
+  /**
+   * 处理脚注跳转——Cmd+Click 脚注引用时滚动到对应的脚注定义块并展开
+   */
+  private handleFootnoteJump(footnoteId: string) {
+    // 1. 在所有 blocks 中查找对应的脚注定义块
+    let targetBlockId: string | null = null
+    for (const [id, block] of this.doc.getBlocks()) {
+      if ('footnoteId' in block && (block as any).footnoteId === footnoteId) {
+        targetBlockId = id
+        break
+      }
+    }
+    if (!targetBlockId) return
+
+    const targetBlock = this.doc.getBlock(targetBlockId)
+    if (!targetBlock) return
+
+    // 2. 收起当前展开的 block
+    const expandedBlockId = this.dom.getExpandedBlockId()
+    if (expandedBlockId) {
+      const oldBlock = this.doc.getBlock(expandedBlockId)
+      if (oldBlock) {
+        this.dom.collapseBlock(oldBlock)
+      }
+    }
+
+    // 3. 展开目标脚注定义块
+    this.dom.expandBlock(targetBlockId, targetBlock)
+
+    // 4. 滚动到目标块（平滑滚动）
+    const targetEl = this.dom.getNodeById(targetBlockId)
+    if (targetEl) {
+      targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+
+    // 5. 高亮目标块
+    this.dom.clearHighlight()
+    this.scheduler.highlightBlock(targetBlockId, BlockVisualState.active)
+    this.skipNextSelectionAction = true
   }
 
   /**

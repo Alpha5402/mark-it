@@ -1419,6 +1419,54 @@ export function resolveDivideRange(
       return
     }
 
+    // 数学公式块（展开模式下为 md-math-block > md-math-block-content）
+    if (el.classList.contains('md-math-block')) {
+      const mathContent = el.querySelector('.md-math-block-content')
+      if (mathContent) {
+        const walker = document.createTreeWalker(
+          mathContent,
+          NodeFilter.SHOW_TEXT,
+          null
+        )
+        const textNodes: Text[] = []
+        let node: Text | null
+        while ((node = walker.nextNode() as Text)) {
+          textNodes.push(node)
+        }
+
+        const lastTextNode = textNodes[textNodes.length - 1]
+        for (const textNode of textNodes) {
+          const isNotLast = textNode !== lastTextNode
+          pushTextSlots(textNode, isNotLast)
+        }
+      }
+      return
+    }
+
+    // 表格（展开模式下为 md-table-wrapper > md-table-content）
+    if (el.classList.contains('md-table-wrapper')) {
+      const tableContent = el.querySelector('.md-table-content')
+      if (tableContent) {
+        const walker = document.createTreeWalker(
+          tableContent,
+          NodeFilter.SHOW_TEXT,
+          null
+        )
+        const textNodes: Text[] = []
+        let node: Text | null
+        while ((node = walker.nextNode() as Text)) {
+          textNodes.push(node)
+        }
+
+        const lastTextNode = textNodes[textNodes.length - 1]
+        for (const textNode of textNodes) {
+          const isNotLast = textNode !== lastTextNode
+          pushTextSlots(textNode, isNotLast)
+        }
+      }
+      return
+    }
+
     if (el.classList.contains('md-inline-content')) {
       const walker = document.createTreeWalker(
         el,
