@@ -339,14 +339,48 @@ button {
 .topbar {
   grid-column: 1 / -1;
   grid-row: 1;
-  display: grid;
-  grid-template-columns: minmax(154px, 1fr) auto minmax(220px, 1fr);
-  gap: 18px;
+  display: flex;
   align-items: center;
+  gap: 14px;
   height: 58px;
   padding: 0 18px;
   border-bottom: 1px solid rgba(24, 33, 47, 0.11);
   background: rgba(255, 255, 255, 0.7);
+}
+
+.topbar .document-heading {
+  flex: 1;
+  min-width: 0;
+}
+
+.format-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: #eef2f6;
+}
+
+.format-toolbar button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 28px;
+  border-radius: 6px;
+  color: #526071;
+  background: transparent;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.format-toolbar button:hover {
+  color: #18212f;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(24, 33, 47, 0.1);
+}
+
+.format-toolbar button:active {
+  background: #dbe3ea;
 }
 
 .platform-darwin:not(.is-fullscreen) .topbar {
@@ -411,7 +445,7 @@ button {
 .topbar-stats {
   display: flex;
   align-items: center;
-  justify-self: end;
+  margin-left: auto;
   gap: 8px;
 }
 

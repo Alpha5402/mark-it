@@ -1,5 +1,6 @@
-import { BlockModel, InlineModel, INLINE_FLAG, HeadingBlock, ListItemBlock, BlockquoteBlock, CodeBlock, TableBlock } from "../types"
+import { BlockModel, InlineModel, INLINE_FLAG, HeadingBlock, ListItemBlock, BlockquoteBlock, CodeBlock, TableBlock, FootnoteRefInline, FootnoteDefBlock, MathInline, MathBlock } from "../types"
 import Prism from 'prismjs'
+import katex from 'katex'
 
 /**
  * 使用 Prism.js 对代码进行语法高亮
@@ -301,6 +302,43 @@ export const renderBlock = (block: BlockModel, expanded: boolean = false): Docum
       frag.appendChild(wrapper)
       break
     }
+    case 'math-block': {
+      const mathBlock = block as MathBlock
+      const wrapper = document.createElement('div')
+      wrapper.className = 'md-math-block'
+
+      if (expanded) {
+        // 展开模式：显示原始 $$...$$ 文本
+        const content = document.createElement('div')
+        content.className = 'md-inline-content md-math-block-content'
+        const fullText = '$$\n' + mathBlock.tex + '\n$$'
+        content.appendChild(document.createTextNode(fullText))
+        wrapper.appendChild(content)
+      } else {
+        // 非展开模式：使用 KaTeX 渲染
+        const display = document.createElement('div')
+        display.className = 'md-math-display'
+        try {
+          display.innerHTML = katex.renderToString(mathBlock.tex, {
+            displayMode: true,
+            throwOnError: false,
+            output: 'html'
+          })
+        } catch {
+          display.textContent = mathBlock.tex
+          display.classList.add('md-math-error')
+        }
+        wrapper.appendChild(display)
+        // 零宽空格确保浏览器 selection 能正确落在此 block 上
+        const anchor = document.createElement('span')
+        anchor.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden'
+        anchor.appendChild(document.createTextNode('\u200B'))
+        wrapper.appendChild(anchor)
+      }
+
+      frag.appendChild(wrapper)
+      break
+    }
     case 'table': {
       const tableBlock = block as TableBlock
       const wrapper = document.createElement('div')
@@ -368,11 +406,28 @@ export const renderBlock = (block: BlockModel, expanded: boolean = false): Docum
     }
     case 'paragraph': {
       const div = document.createElement('div')
-      div.className = `md-paragraph`
+      const isFootnoteDef = 'footnoteId' in block && (block as FootnoteDefBlock).footnoteId
+      div.className = isFootnoteDef ? 'md-paragraph md-footnote-def' : 'md-paragraph'
+      if (isFootnoteDef) {
+        div.dataset.footnoteId = (block as FootnoteDefBlock).footnoteId
+      }
       const content = document.createElement('div')
       content.className = `md-inline-content`
       if (expanded) {
         indentPrefixes.forEach(n => content.appendChild(n))
+        if (isFootnoteDef) {
+          // 展开模式：显示原始 [^id]: 标记
+          const markerSpan = document.createElement('span')
+          markerSpan.classList.add('md-struct-marker')
+          markerSpan.textContent = `[^${(block as FootnoteDefBlock).footnoteId}]: `
+          content.appendChild(markerSpan)
+        }
+      } else if (isFootnoteDef) {
+        // 非展开模式：显示脚注编号标记
+        const marker = document.createElement('span')
+        marker.className = 'md-footnote-marker'
+        marker.textContent = (block as FootnoteDefBlock).footnoteId
+        content.appendChild(marker)
       }
       block.inline?.forEach((inline) => {
         content.appendChild(renderInlineBlock(inline, expanded))
@@ -476,6 +531,76 @@ export const renderInlineBlock = (block: InlineModel, expanded: boolean = false)
       img.classList.add('md-image')
       img.style.maxWidth = '100%'
       frag.appendChild(img)
+    }
+  } else if (block.type === 'footnote-ref') {
+    const fnRef = block as FootnoteRefInline
+    if (expanded) {
+      // 展开模式：显示原始 [^id] 语法
+      const wrapper = document.createElement('span')
+      wrapper.classList.add('md-marker-expanded', 'md-footnote-ref')
+      const markerSpan = document.createElement('span')
+      markerSpan.classList.add('md-marker')
+      markerSpan.textContent = `[^${fnRef.id}]`
+      wrapper.appendChild(markerSpan)
+      frag.appendChild(wrapper)
+    } else {
+      // 非展开模式：渲染为上标链接
+      const sup = document.createElement('sup')
+      sup.className = 'md-footnote-ref'
+      const link = document.createElement('a')
+      link.className = 'md-footnote-link'
+      link.href = `#fn-${fnRef.id}`
+      link.dataset.footnoteId = fnRef.id
+      link.textContent = fnRef.id
+      sup.appendChild(link)
+      frag.appendChild(sup)
+    }
+  } else if (block.type === 'math') {
+    const mathInline = block as MathInline
+    if (expanded) {
+      // 展开模式：显示原始 $tex$ 语法
+      const wrapper = document.createElement('span')
+      wrapper.classList.add('md-marker-expanded', 'md-math-inline')
+      const prefixSpan = document.createElement('span')
+      prefixSpan.classList.add('md-marker')
+      prefixSpan.textContent = '$'
+      wrapper.appendChild(prefixSpan)
+      const texNode = document.createTextNode(mathInline.tex)
+      wrapper.appendChild(texNode)
+      const suffixSpan = document.createElement('span')
+      suffixSpan.classList.add('md-marker')
+      suffixSpan.textContent = '$'
+      wrapper.appendChild(suffixSpan)
+      frag.appendChild(wrapper)
+    } else {
+      // 非展开模式：使用 KaTeX 渲染，两侧显示 $ 标记符
+      const wrapper = document.createElement('span')
+      wrapper.className = 'md-math-inline'
+
+      const prefixMarker = document.createElement('span')
+      prefixMarker.classList.add('md-marker')
+      prefixMarker.textContent = '$'
+      wrapper.appendChild(prefixMarker)
+
+      const katexSpan = document.createElement('span')
+      try {
+        katexSpan.innerHTML = katex.renderToString(mathInline.tex, {
+          displayMode: false,
+          throwOnError: false,
+          output: 'html'
+        })
+      } catch {
+        katexSpan.textContent = mathInline.tex
+        katexSpan.classList.add('md-math-error')
+      }
+      wrapper.appendChild(katexSpan)
+
+      const suffixMarker = document.createElement('span')
+      suffixMarker.classList.add('md-marker')
+      suffixMarker.textContent = '$'
+      wrapper.appendChild(suffixMarker)
+
+      frag.appendChild(wrapper)
     }
   } else if (block.type === 'text') {
     // 如果是展开模式且有标记符，渲染带标记符的展开形式

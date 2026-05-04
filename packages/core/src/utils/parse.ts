@@ -1,4 +1,4 @@
-import { RawLine, BlockModel, InlineModel, INLINE_FLAG, HeadingBlock, ListItemBlock, BlockquoteBlock, CodeBlock, TableBlock } from "../types";
+import { RawLine, BlockModel, InlineModel, INLINE_FLAG, HeadingBlock, ListItemBlock, BlockquoteBlock, CodeBlock, TableBlock, FootnoteRefInline, FootnoteDefBlock, MathInline, MathBlock } from "../types";
 
 const TAB_WIDTH = 4
 
@@ -224,6 +224,50 @@ export function inlineParse(input: string): {
   }
 
   while (pos < input.length) {
+    // 行内数学公式 $...$（不含 $$）
+    if (input[pos] === '$' && input[pos + 1] !== '$') {
+      const end = input.indexOf('$', pos + 1)
+      if (end !== -1 && end > pos + 1) {
+        // 确保不是 $$ 的一部分
+        if (input[end + 1] !== '$') {
+          flush()
+          const tex = input.slice(pos + 1, end)
+          result.push({
+            type: 'math',
+            tex,
+            marks: currentMarks,
+            offset: logicalOffset,
+            dirty: false
+          } as MathInline)
+          logicalOffset += tex.length
+          pos = end + 1
+          continue
+        }
+      }
+    }
+
+    // 脚注引用 [^id]
+    if (input[pos] === '[' && input[pos + 1] === '^') {
+      const closeBracket = input.indexOf(']', pos + 2)
+      if (closeBracket !== -1 && input[closeBracket + 1] !== '(') {
+        // 确认是脚注引用（不是链接）
+        const footnoteId = input.slice(pos + 2, closeBracket)
+        if (footnoteId && /^[\w-]+$/.test(footnoteId)) {
+          flush()
+          result.push({
+            type: 'footnote-ref',
+            id: footnoteId,
+            marks: currentMarks,
+            offset: logicalOffset,
+            dirty: false
+          } as FootnoteRefInline)
+          logicalOffset += footnoteId.length
+          pos = closeBracket + 1
+          continue
+        }
+      }
+    }
+
     // 检查是否是链接/图片起始
     const link = linkAtPos.get(pos)
     if (link) {
@@ -378,6 +422,20 @@ export function parseLine(line: RawLine): BlockModel {
     } as CodeBlock
   }
 
+  // 如果是块级数学公式（由 tokenize 阶段合并的多行 token）
+  if (raw.startsWith('$$') && raw.endsWith('$$') && raw.length > 4) {
+    const mathLines = raw.split('\n')
+    if (mathLines.length >= 2 && mathLines[0].trim() === '$$' && mathLines[mathLines.length - 1].trim() === '$$') {
+      const tex = mathLines.slice(1, -1).join('\n')
+      return {
+        id: line.id,
+        type: 'math-block',
+        tex,
+        inline: []
+      } as MathBlock
+    }
+  }
+
   // 如果是表格（由 tokenize 阶段合并的多行 token）
   const tableLines = raw.split('\n')
   if (tableLines.length >= 2 && /^\|/.test(tableLines[0].trim()) && /^\|[\s:]*-+/.test(tableLines[1].trim())) {
@@ -412,6 +470,20 @@ export function parseLine(line: RawLine): BlockModel {
       rows,
       inline: []
     } as TableBlock
+  }
+
+  // 如果是脚注定义行 [^id]: content
+  const footnoteDefMatch = raw.match(/^\[\^([\w-]+)\]:\s*(.*)$/)
+  if (footnoteDefMatch) {
+    const footnoteId = footnoteDefMatch[1]
+    const content = footnoteDefMatch[2]
+    const result: FootnoteDefBlock = {
+      id: line.id,
+      type: 'paragraph',
+      footnoteId,
+      inline: inlineParse(content).inline,
+    }
+    return result
   }
 
   // 如果是引用
@@ -501,6 +573,6 @@ export function parseLine(line: RawLine): BlockModel {
     id: line.id,
     type: 'paragraph',
     nesting: leadingSpaceParse(leading),
-    inline: inlineParse(raw).inline,
+    inline: inlineParse(raw.slice(leading.length)).inline,
   }
 }

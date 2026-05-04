@@ -33,6 +33,8 @@ export enum EditorActionType {
   LinkClick = 'link-click',
   /** 鼠标悬停图片 */
   ImageHover = 'image-hover',
+  /** Cmd+点击脚注引用，跳转到脚注定义 */
+  FootnoteJump = 'footnote-jump',
 
   DomMutated = 'dom-mutated',
 
@@ -520,8 +522,21 @@ export class EventController {
     const target = e.target as HTMLElement
     if (!target) return
 
-    // Cmd（Mac）或 Ctrl（Windows/Linux）+ 左键点击链接 → 跳转
+    // Cmd（Mac）或 Ctrl（Windows/Linux）+ 左键点击
     if ((e.metaKey || e.ctrlKey) && e.button === 0) {
+      // 脚注引用跳转
+      const footnoteLink = target.closest('a.md-footnote-link') as HTMLElement | null
+      if (footnoteLink && this.root.contains(footnoteLink)) {
+        e.preventDefault()
+        e.stopPropagation()
+        const footnoteId = footnoteLink.dataset.footnoteId || ''
+        if (footnoteId) {
+          this.emit(EditorActionType.FootnoteJump, e, { data: footnoteId })
+        }
+        return
+      }
+
+      // 普通链接跳转
       const linkEl = target.closest('a.md-link') as HTMLAnchorElement | null
       if (linkEl && this.root.contains(linkEl)) {
         e.preventDefault()

@@ -78,6 +78,35 @@ export function initialTokenize(content: string): RawLine[] {
         result.push(tokenizeByLine(raws[i]))
         i++
       }
+    } else if (raws[i].trim() === '$$') {
+      // 检测到块级数学公式 $$...$$
+      const mathLines: string[] = []
+      let j = i + 1
+      let closed = false
+
+      while (j < raws.length) {
+        if (raws[j].trim() === '$$') {
+          closed = true
+          j++
+          break
+        }
+        mathLines.push(raws[j])
+        j++
+      }
+
+      if (closed) {
+        // 将整个数学公式块合并为一个 RawLine
+        // raw 格式：$$\ntex_content\n$$
+        const fullRaw = mathLines.length === 0
+          ? '$$\n$$'
+          : '$$\n' + mathLines.join('\n') + '\n$$'
+        result.push({ id: uid(), raw: fullRaw, leading: '' })
+        i = j
+      } else {
+        // 没有找到关闭标记，当作普通行处理
+        result.push(tokenizeByLine(raws[i]))
+        i++
+      }
     } else if (
       isTableRow(raws[i]) &&
       i + 1 < raws.length && isTableSeparator(raws[i + 1])
