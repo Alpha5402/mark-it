@@ -1,10 +1,11 @@
 {
   "name": "mark-it-core",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "pnpm --filter @mark-it/e2e test",
+    "test": "pnpm test:unit && pnpm test:e2e",
+    "test:unit": "pnpm --dir packages/core test",
     "test:e2e": "pnpm --filter @mark-it/e2e test",
     "test:e2e:ui": "pnpm --filter @mark-it/e2e test:ui",
     "e2e:install": "pnpm --filter @mark-it/e2e install-browsers",

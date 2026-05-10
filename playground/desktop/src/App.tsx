@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Editor, Renderer } from '@mark-it/core';
+import { Editor, Renderer } from 'mark-it-core';
 import logoUrl from './logo.svg';
 
 type Mode = 'edit' | 'read';
@@ -409,6 +409,7 @@ export default function App() {
         </div>
         {mode === 'edit' && hasOpenDocument && (
           <div className="format-toolbar" role="toolbar" aria-label="格式化工具">
+            <span className="format-toolbar-label">样式</span>
             <button type="button" title="加粗 (⌘B)" onClick={() => editorRef.current?.toggleBold()}>
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/><path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/></svg>
             </button>

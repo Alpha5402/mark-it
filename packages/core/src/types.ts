@@ -92,6 +92,7 @@ export interface CodeBlock extends BlockModel {
   type: 'code-block'
   language: string    // 语言标注，如 'javascript'、'python'
   code: string        // 代码内容（原始文本，不做 inline 解析）
+  fence?: string      // 原始围栏标记，如 ``` 或 ~~~
   codeLineCount?: number // 代码内容行数；用于区分零行代码和一行空代码
 }
 
@@ -128,6 +129,7 @@ export interface MathBlock extends BlockModel {
   id: string
   type: 'math-block'
   tex: string         // LaTeX 源码
+  texLineCount?: number // 内容行数；用于区分 "$$\n$$" 和 "$$\n\n$$"
 }
 
 export interface FootnoteDefBlock extends BlockModel {

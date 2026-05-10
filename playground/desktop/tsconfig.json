@@ -15,8 +15,8 @@
     "strict": true,
     "baseUrl": ".",
     "paths": {
-      "@mark-it/core": ["../../packages/core/src/index.ts"],
-      "@mark-it/core/style.css": ["../../packages/core/src/styles/main.css"]
+      "mark-it-core": ["../../packages/core/src/index.ts"],
+      "mark-it-core/style.css": ["../../packages/core/src/styles/main.css"]
     }
   },
   "include": ["src"]

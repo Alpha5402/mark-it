@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Layout, Button } from 'tdesign-react';
 import 'tdesign-react/es/style/index.css';
 import './App.css'; 
-import { Editor, Renderer, DocumentMetadata } from '@mark-it/core';
+import { Editor, Renderer, DocumentMetadata } from 'mark-it-core';
 
 const { Header, Content } = Layout;
 

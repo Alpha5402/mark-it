@@ -267,10 +267,12 @@ export const renderBlock = (block: BlockModel, expanded: boolean = false): Docum
         const content = document.createElement('div')
         content.className = 'md-inline-content md-code-block-content'
 
-        // 开头的 ```language
+        const fence = codeBlock.fence ?? '```'
+
+        // 开头的 fence + language
         const openFence = document.createElement('span')
         openFence.className = 'md-code-fence-marker md-code-fence-open'
-        openFence.textContent = '```' + codeBlock.language
+        openFence.textContent = fence + codeBlock.language
         content.appendChild(openFence)
 
         // 换行
@@ -283,7 +285,7 @@ export const renderBlock = (block: BlockModel, expanded: boolean = false): Docum
         content.appendChild(document.createTextNode('\n'))
         const closeFence = document.createElement('span')
         closeFence.className = 'md-code-fence-marker md-code-fence-close'
-        closeFence.textContent = '```'
+        closeFence.textContent = fence
         content.appendChild(closeFence)
 
         pre.appendChild(content)
@@ -311,7 +313,8 @@ export const renderBlock = (block: BlockModel, expanded: boolean = false): Docum
         // 展开模式：显示原始 $$...$$ 文本
         const content = document.createElement('div')
         content.className = 'md-inline-content md-math-block-content'
-        const fullText = '$$\n' + mathBlock.tex + '\n$$'
+        const texLineCount = mathBlock.texLineCount ?? (mathBlock.tex === '' ? 1 : mathBlock.tex.split('\n').length)
+        const fullText = texLineCount === 0 ? '$$\n$$' : '$$\n' + mathBlock.tex + '\n$$'
         content.appendChild(document.createTextNode(fullText))
         wrapper.appendChild(content)
       } else {
@@ -449,7 +452,8 @@ export const renderInlineBlock = (block: InlineModel, expanded: boolean = false)
     if (expanded) {
       // 展开模式：显示完整的 Markdown 链接语法 [text](url)
       // 这确保 DOM 文本与 getRawText() 返回的文本一致
-      const wrapper = document.createElement('span')
+      const wrapper = document.createElement('a')
+      wrapper.href = block.href
       wrapper.classList.add('md-marker-expanded', 'md-link')
 
       // 前缀标记符 [
@@ -573,14 +577,9 @@ export const renderInlineBlock = (block: InlineModel, expanded: boolean = false)
       wrapper.appendChild(suffixSpan)
       frag.appendChild(wrapper)
     } else {
-      // 非展开模式：使用 KaTeX 渲染，两侧显示 $ 标记符
+      // 非展开模式：使用 KaTeX 渲染
       const wrapper = document.createElement('span')
       wrapper.className = 'md-math-inline'
-
-      const prefixMarker = document.createElement('span')
-      prefixMarker.classList.add('md-marker')
-      prefixMarker.textContent = '$'
-      wrapper.appendChild(prefixMarker)
 
       const katexSpan = document.createElement('span')
       try {
@@ -594,11 +593,6 @@ export const renderInlineBlock = (block: InlineModel, expanded: boolean = false)
         katexSpan.classList.add('md-math-error')
       }
       wrapper.appendChild(katexSpan)
-
-      const suffixMarker = document.createElement('span')
-      suffixMarker.classList.add('md-marker')
-      suffixMarker.textContent = '$'
-      wrapper.appendChild(suffixMarker)
 
       frag.appendChild(wrapper)
     }

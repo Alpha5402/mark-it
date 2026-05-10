@@ -15,7 +15,12 @@
 
     /* 🔥 关键配置：让 TS 认识 React JSX */
     "jsx": "react-jsx",
-    "esModuleInterop": true
+    "esModuleInterop": true,
+    "baseUrl": ".",
+    "paths": {
+      "mark-it-core": ["../packages/core/src/index.ts"],
+      "mark-it-core/style.css": ["../packages/core/src/styles/main.css"]
+    }
   },
   "include": ["src"]
 }

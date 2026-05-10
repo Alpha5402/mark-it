@@ -57,8 +57,7 @@ test.describe('03.9 tab indent', () => {
     const fooStart = raw.indexOf('foo')
     await placeCaret(page, id, fooStart)
     await page.keyboard.press('Tab')
-    const md = await page.evaluate(() => window.__markit.getMarkdown())
-    expect(md.includes('    foo') || md.includes('\tfoo')).toBe(true)
+    await expectMarkdownEquals(page, '```js\n    foo\n```')
   })
 
   test('3.9.8 Tab 不切换浏览器焦点', async ({ page }) => {

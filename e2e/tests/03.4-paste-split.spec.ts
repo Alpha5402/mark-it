@@ -42,9 +42,9 @@ test.describe('03.4 paste & enter split', () => {
     const id = await blockIdAt(page, 0)
     await placeCaret(page, id, 0)
     await simulatePaste(page, 'text\n```js\nfoo\n```\nend')
+    await expectMarkdownEquals(page, 'text\n```js\nfoo\n```\nend')
     const snap = await getEditorSnapshot(page)
-    const hasCodeBlock = snap.blocks.some(b => b.type === 'code-block')
-    expect(hasCodeBlock, `blocks=${JSON.stringify(snap.blocks.map(b => b.type))}`).toBe(true)
+    expect(snap.blocks.map(b => b.type)).toEqual(['paragraph', 'code-block', 'paragraph'])
   })
 
   test('3.4.4 粘贴含 $$...$$ → 识别为 math-block', async ({ page }) => {
@@ -52,9 +52,9 @@ test.describe('03.4 paste & enter split', () => {
     const id = await blockIdAt(page, 0)
     await placeCaret(page, id, 0)
     await simulatePaste(page, 'x\n$$\nE=mc^2\n$$\ny')
+    await expectMarkdownEquals(page, 'x\n$$\nE=mc^2\n$$\ny')
     const snap = await getEditorSnapshot(page)
-    const hasMath = snap.blocks.some(b => b.type === 'math-block')
-    expect(hasMath).toBe(true)
+    expect(snap.blocks.map(b => b.type)).toEqual(['paragraph', 'math-block', 'paragraph'])
   })
 
   test('3.4.7 在 list-item 尾部回车 → 新增下一条 list', async ({ page }) => {

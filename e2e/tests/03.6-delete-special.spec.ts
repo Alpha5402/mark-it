@@ -79,9 +79,9 @@ test.describe('03.6 delete special chars', () => {
     // 光标放到 '[' 之后（rawOffset=3），按 Backspace 删 '['
     await placeCaret(page, id, 3)
     await page.keyboard.press('Backspace')
-    const md = await page.evaluate(() => window.__markit.getMarkdown())
-    expect(md.startsWith('a ')).toBe(true)
-    expect(md.includes('[')).toBe(false)
+    await expectMarkdownEquals(page, 'a b](c) d')
+    const snap = await getEditorSnapshot(page)
+    expect(snap.blocks[0].type).toBe('paragraph')
   })
 
   test('3.6.11 删除后光标位置应在删除点', async ({ page }) => {

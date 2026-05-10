@@ -4,7 +4,7 @@ import { parseLine, inlineParse } from "./parse"
 import { initialTokenize, tokenizeByLine, uid } from "./tokenize"
 import { BlockMatchResult, matchListItem, matchHeading } from "./matcher"
 
-function parseFencedCodeRaw(rawText: string): { language: string; code: string; codeLineCount: number } | null {
+function parseFencedCodeRaw(rawText: string): { language: string; code: string; fence: string; codeLineCount: number } | null {
   const lines = rawText.split('\n')
   if (lines.length < 2) return null
 
@@ -20,6 +20,7 @@ function parseFencedCodeRaw(rawText: string): { language: string; code: string; 
   return {
     language: openMatch[2].trim(),
     code: lines.slice(1, -1).join('\n'),
+    fence,
     codeLineCount: Math.max(0, lines.length - 2)
   }
 }
@@ -91,9 +92,10 @@ export class DocumentController {
       raw += '>'.repeat(bq.quoteDepth) + ' '
     } else if (block.type === 'code-block') {
       const cb = block as CodeBlock
-      const openFence = '```' + cb.language
+      const fence = cb.fence ?? '```'
+      const openFence = fence + cb.language
       const codeLineCount = cb.codeLineCount ?? (cb.code === '' ? 0 : cb.code.split('\n').length)
-      return codeLineCount === 0 ? openFence + '\n```' : openFence + '\n' + cb.code + '\n```'
+      return codeLineCount === 0 ? openFence + '\n' + fence : openFence + '\n' + cb.code + '\n' + fence
     } else if (block.type === 'table') {
       const tb = block as TableBlock
       const headerRow = '| ' + tb.headers.join(' | ') + ' |'
@@ -107,7 +109,8 @@ export class DocumentController {
       return [headerRow, separatorRow, ...dataRows].join('\n')
     } else if (block.type === 'math-block') {
       const mb = block as MathBlock
-      return '$$\n' + mb.tex + '\n$$'
+      const texLineCount = mb.texLineCount ?? (mb.tex === '' ? 1 : mb.tex.split('\n').length)
+      return texLineCount === 0 ? '$$\n$$' : '$$\n' + mb.tex + '\n$$'
     }
 
     // 脚注定义块
@@ -172,6 +175,7 @@ export class DocumentController {
           type: 'code-block',
           language: codeBlockMatch.language,
           code: codeBlockMatch.code,
+          fence: codeBlockMatch.fence,
           codeLineCount: codeBlockMatch.codeLineCount,
           inline: []
         }
@@ -179,6 +183,7 @@ export class DocumentController {
         if (
           newBlock.language !== (block as CodeBlock).language ||
           newBlock.code !== (block as CodeBlock).code ||
+          newBlock.fence !== (block as CodeBlock).fence ||
           newBlock.codeLineCount !== (block as CodeBlock).codeLineCount
         ) {
           return { kind: 'block-transform', from: block, to: newBlock }
@@ -229,6 +234,7 @@ export class DocumentController {
           id: block.id,
           type: 'math-block',
           tex,
+          texLineCount: Math.max(0, mathLines.length - 2),
           inline: []
         }
         this.blocks.set(blockId, newBlock)
@@ -325,6 +331,25 @@ export class DocumentController {
       }
     }
 
+    if (newBlock.type === 'list-item' && block.type === 'list-item') {
+      const oldList = block as ListItemBlock
+      const newList = newBlock as ListItemBlock
+      if (JSON.stringify(oldList.style) !== JSON.stringify(newList.style)) {
+        const isTypingFreshTaskMarker =
+          !('task' in oldList.style && oldList.style.task) &&
+          'task' in newList.style && newList.style.task &&
+          (newList.inline?.length ?? 0) === 0
+        if (isTypingFreshTaskMarker) {
+          const listMarker = rawTextForParse.match(/^\s*[-*+]\s/)?.[0] ?? ''
+          block.inline = inlineParse(rawTextForParse.slice(listMarker.length)).inline
+          block.nesting = newBlock.nesting
+          return { kind: 'inline-update', block }
+        }
+        this.blocks.set(blockId, newBlock)
+        return { kind: 'block-transform', from: block, to: newBlock }
+      }
+    }
+
     // 结构不变，更新 inline
     block.inline = newBlock.inline
     block.nesting = newBlock.nesting
@@ -384,6 +409,13 @@ export class DocumentController {
     return ids[idx - 1]
   }
 
+  getNextBlockId(blockId: string): string | null {
+    const ids = Array.from(this.blocks.keys())
+    const idx = ids.indexOf(blockId)
+    if (idx === -1 || idx >= ids.length - 1) return null
+    return ids[idx + 1]
+  }
+
   /**
    * 将当前 block 的内容合并到前一个 block 末尾，然后删除当前 block
    * 返回合并后的 block 和光标应该定位的语义偏移量
@@ -432,6 +464,72 @@ export class DocumentController {
       cursorRawOffset,
       removedBlockId: blockId
     }
+  }
+
+  mergeBlockWithNext(blockId: string): {
+    mergedBlock: BlockModel
+    cursorRawOffset: number
+    removedBlockId: string
+  } | null {
+    const nextId = this.getNextBlockId(blockId)
+    if (!nextId) return null
+
+    const block = this.blocks.get(blockId)
+    const nextBlock = this.blocks.get(nextId)
+    if (!block || !nextBlock) return null
+
+    const currentRawText = this.getRawText(blockId)
+    const nextRawText = this.getRawText(nextId)
+    const cursorRawOffset = currentRawText.length
+    const mergedRawText = currentRawText + nextRawText
+
+    const effect = this.reconcileFromRawText(blockId, mergedRawText)
+    if (!effect || effect.kind === 'code-block-degrade') return null
+
+    const mergedBlock = effect.kind === 'block-transform' ? effect.to : effect.block
+    this.blocks.delete(nextId)
+
+    return {
+      mergedBlock,
+      cursorRawOffset,
+      removedBlockId: nextId
+    }
+  }
+
+  replaceBlockRangeFromRawText(startBlockId: string, endBlockId: string, rawText: string): {
+    blocks: BlockModel[]
+    removedBlockIds: string[]
+  } | null {
+    const ids = Array.from(this.blocks.keys())
+    const startIdx = ids.indexOf(startBlockId)
+    const endIdx = ids.indexOf(endBlockId)
+    if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) return null
+
+    const newBlocks = this.parseBlocksFromRawText(rawText, startBlockId)
+    if (newBlocks.length === 0) return null
+    const rangeIds = new Set(ids.slice(startIdx, endIdx + 1))
+    const removedBlockIds = ids.slice(startIdx + 1, endIdx + 1)
+
+    const nextBlocks = new Map<string, BlockModel>()
+    for (const [id, block] of this.blocks) {
+      if (id === startBlockId) {
+        for (const newBlock of newBlocks) {
+          nextBlocks.set(newBlock.id, newBlock)
+        }
+      } else if (!rangeIds.has(id)) {
+        nextBlocks.set(id, block)
+      }
+    }
+    this.blocks = nextBlocks
+
+    return { blocks: newBlocks, removedBlockIds }
+  }
+
+  parseBlocksFromRawText(rawText: string, firstBlockId?: string): BlockModel[] {
+    const tokens = initialTokenize(rawText)
+    if (tokens.length === 0) return []
+    if (firstBlockId) tokens[0].id = firstBlockId
+    return tokens.map(parseLine)
   }
 
   prefixOffset = (BlockId: string) => {

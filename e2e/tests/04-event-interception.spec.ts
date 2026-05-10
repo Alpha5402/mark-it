@@ -110,6 +110,6 @@ test.describe('04 event-interception', () => {
       { timeout: 3000 },
     )
     const md = await page.evaluate(() => window.__markit.getMarkdown())
-    expect(md.includes('![')).toBe(true)
+    expect(md).toMatch(/^!\[pixel\.png\]\(data:image\/png;base64,/)
   })
 })

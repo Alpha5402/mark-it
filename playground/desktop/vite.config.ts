@@ -20,11 +20,11 @@ export default defineConfig({
   resolve: {
     alias: [
       {
-        find: '@mark-it/core/style.css',
+        find: 'mark-it-core/style.css',
         replacement: path.resolve(__dirname, '../../packages/core/src/styles/main.css')
       },
       {
-        find: '@mark-it/core',
+        find: 'mark-it-core',
         replacement: path.resolve(__dirname, '../../packages/core/src/index.ts')
       }
     ]

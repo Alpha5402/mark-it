@@ -3,7 +3,6 @@ import {
   gotoPlayground,
   resetEditor,
   getEditorSnapshot,
-  getMarkdown,
   editorArea,
   placeCaret,
   blockIdAt,
@@ -79,13 +78,12 @@ test.describe('01 create block', () => {
   })
 
   test('1.5 键入 "- [ ] " / "- [x] " → task list', async ({ page }) => {
-    test.fixme(true, 'core 当前逐字符键入 "[" 与 "]" 的 auto-pair 行为会吞掉 "[]"，期望与实现待对齐')
     await focusFirstBlock(page)
     await page.keyboard.type('- [ ] todo')
     await expectMarkdownEquals(page, '- [ ] todo')
     const snap = await getEditorSnapshot(page)
-    // task list 在 model 层类型仍为 list-item，通过 style 区分
     expect(snap.blocks[0].type).toBe('list-item')
+    expect((snap.blocks[0] as any).raw).toBe('- [ ] todo')
 
     await resetEditor(page, '')
     await focusFirstBlock(page)
@@ -93,6 +91,7 @@ test.describe('01 create block', () => {
     await expectMarkdownEquals(page, '- [x] done')
     const snap2 = await getEditorSnapshot(page)
     expect(snap2.blocks[0].type).toBe('list-item')
+    expect((snap2.blocks[0] as any).raw).toBe('- [x] done')
   })
 
   test('1.6 键入 "> " → blockquote', async ({ page }) => {
@@ -130,13 +129,9 @@ test.describe('01 create block', () => {
   test('1.9 键入 "$$" → auto-pair 成 $$$$；再 Enter → math-block', async ({ page }) => {
     await focusFirstBlock(page)
     await page.keyboard.type('$$')
-    // auto-pair 后应看到 $$$$ 之类的内容（取决于 tryHandleMarkdownAutoComplete）
-    const mdAfterDouble = await getMarkdown(page)
-    expect(mdAfterDouble).toContain('$$')
-    await page.keyboard.press('Enter')
+    await expectMarkdownEquals(page, '$$\n\n$$')
     const snap = await getEditorSnapshot(page)
-    // 允许 math-block 或 paragraph，取决于实现细节；至少不 crash
-    expect(['math-block', 'paragraph']).toContain(snap.blocks[0].type)
+    expect(snap.blocks[0].type).toBe('math-block')
   })
 
   test('1.10 键入表头 + 分隔行 + 数据行 → table', async ({ page }) => {
@@ -149,11 +144,8 @@ test.describe('01 create block', () => {
     await page.keyboard.type('| 1 | 2 |')
     await page.keyboard.press('Enter')
     const snap = await getEditorSnapshot(page)
-    const hasTable = snap.blocks.some(b => b.type === 'table')
-    // 注：如果 core 的表格识别要求全部 3 行后才触发 reconcile，这里允许出现 paragraph
-    // 但至少全局 markdown 必须含表格分隔行
-    const md = await page.evaluate(() => window.__markit.getMarkdown())
-    expect(md.includes('| --- | --- |') || hasTable).toBe(true)
+    expect(snap.blocks[0].type).toBe('table')
+    await expectMarkdownEquals(page, '| a | b |\n| --- | --- |\n| 1 | 2 |\n')
   })
 
   test('1.11 空段落上按 Enter → 新建 blank', async ({ page }) => {

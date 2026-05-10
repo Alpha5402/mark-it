@@ -1,6 +1,6 @@
 {
-  "name": "@mark-it/core",
-  "version": "1.0.0",
+  "name": "@alpha5402/mark-it-core",
+  "version": "1.0.2",
   "description": "Core markdown engine parser and renderer",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -14,11 +14,23 @@
     "./style.css": "./dist/index.css"
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Alpha5402/mark-it.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/Alpha5402/mark-it#readme",
+  "bugs": {
+    "url": "https://github.com/Alpha5402/mark-it/issues"
+  },
   "scripts": {
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
-    "build": "tsup src/index.ts --format cjs,esm --dts --clean"
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "peerDependencies": {
     "katex": "^0.16.0",
@@ -28,8 +40,10 @@
     "@types/katex": "^0.16.0",
     "@types/node": "^20.0.0",
     "@types/prismjs": "^1.26.0",
+    "jsdom": "^25.0.0",
     "tsup": "^8.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "vitest": "^2.1.0"
   },
   "dependencies": {
     "escape": "^0.0.1"

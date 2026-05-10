@@ -90,7 +90,7 @@ test.describe('03.0 expand block', () => {
     await placeCaret(page, id, 0)
     // 展开后 DOM 里应该能看到原文 "---"
     const text = await blockLocator(page, id).textContent()
-    expect((text ?? '').includes('---')).toBe(true)
+    expect(text).toBe('---')
   })
 
   test('3.0.11 ArrowDown 进入下一 block → 自动切换展开', async ({ page }) => {

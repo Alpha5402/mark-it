@@ -24,18 +24,15 @@ test.describe('03.2 insert special chars', () => {
     const id = await blockIdAt(page, 0)
     await placeCaret(page, id, 0)
     await page.keyboard.type('*')
-    const md = await getMarkdown(page)
-    // 允许两种实现：auto-pair 成 "**"，或 isAutoPairCharacter 关闭时为 "*"
-    expect(['*', '**']).toContain(md)
+    await expectMarkdownEquals(page, '**')
   })
 
-  test('3.2.1b 单键入 "`" → auto-pair 成 "``" 或保持 "`"', async ({ page }) => {
+  test('3.2.1b 单键入 "`" → auto-pair 成 "``"（光标在中间）', async ({ page }) => {
     await resetEditor(page, '')
     const id = await blockIdAt(page, 0)
     await placeCaret(page, id, 0)
     await page.keyboard.type('`')
-    const md = await getMarkdown(page)
-    expect(['`', '``']).toContain(md)
+    await expectMarkdownEquals(page, '``')
   })
 
   test('3.2.4 键入 **text** → 保留为粗体源文本', async ({ page }) => {
@@ -64,26 +61,23 @@ test.describe('03.2 insert special chars', () => {
     await resetEditor(page, '')
     const id = await blockIdAt(page, 0)
     await placeCaret(page, id, 0)
-    // auto-pair 可能对 "$" 做处理；逐字符键入并最终期望 markdown 含 "$x$"
     await page.keyboard.type('$')
     await page.keyboard.type('x')
-    // 如果 auto-pair 把 $ 补成 $$，下一次 x 会进入中间；这里简化只断言包含 "$"
-    const md1 = await getMarkdown(page)
-    expect(md1.includes('$')).toBe(true)
+    await page.keyboard.type('$')
+    await expectMarkdownEquals(page, '$x$')
+    const snap = await getEditorSnapshot(page)
+    expect(snap.blocks[0].type).toBe('paragraph')
   })
 
   test('3.2.8 段首键入两个 "`"+ "`" → 触发 code-block 围栏', async ({ page }) => {
     await resetEditor(page, '')
     const id = await blockIdAt(page, 0)
     await placeCaret(page, id, 0)
-    // 反引号 auto-pair 行为依赖实现，此处直接键入 "```"
     await page.keyboard.type('```')
-    const snap = await getEditorSnapshot(page)
-    // 此时可能仍是 paragraph；再按 Enter 才形成 code-block
     await page.keyboard.press('Enter')
     const snap2 = await getEditorSnapshot(page)
-    const hasCode = snap2.blocks.some(b => b.type === 'code-block')
-    expect(hasCode).toBe(true)
+    expect(snap2.blocks[0].type).toBe('code-block')
+    await expectMarkdownEquals(page, '```\n\n```')
   })
 
   test('3.2.9 在 code-block 内键入 "*" 不 auto-pair', async ({ page }) => {

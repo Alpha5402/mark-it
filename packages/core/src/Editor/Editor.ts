@@ -6,6 +6,7 @@ import { EditorView } from './EditorView';
 import { EditorActionType, EventController, type EditorActionContext, type SelectionSnapshot } from './EditorEventController';
 import { BlockModel, BlockVisualState, ListItemBlock, INLINE_FLAG, HeadingBlock, BlockquoteBlock, CodeBlock, TableBlock, InlineModel, type DocumentMetadata } from '../types';
 import { initialTokenize } from '../utils/tokenize';
+import { parseLine } from '../utils/parse';
 
 export class Editor {
   view: EditorView
@@ -452,7 +453,10 @@ export class Editor {
           newCursorRawOffset = rawOffset - 1
         } else {
           // DeleteForward
-          if (rawOffset >= rawText.length) return
+          if (rawOffset >= rawText.length) {
+            this.handleMergeWithNextBlock(block.id)
+            return
+          }
           newRawText = rawText.slice(0, rawOffset) + rawText.slice(rawOffset + 1)
           newCursorRawOffset = rawOffset
         }
@@ -478,8 +482,17 @@ export class Editor {
 
         if (type === EditorActionType.DeleteBackward) {
           this.scheduler.handleDeleteBackward(block.id, offset)
+        } else {
+          const rawText = this.doc.getRawText(block.id)
+          const rawOffset = this.semanticToRawOffset(block, offset)
+          if (rawOffset === null) return
+          if (rawOffset >= rawText.length) {
+            this.handleMergeWithNextBlock(block.id)
+            return
+          }
+          const newRawText = rawText.slice(0, rawOffset) + rawText.slice(rawOffset + 1)
+          this.applyRawReconcile(block, newRawText, rawOffset)
         }
-        // DeleteForward 在非展开模式下暂不处理
       }
     }
 
@@ -667,6 +680,8 @@ export class Editor {
         const newBlock = this.doc.createBlockFromRawText(afterRaw, updatedBlock.id)
         // 插入到 DOM
         this.dom.insertBlock(updatedBlock, newBlock)
+
+        this.tryRebuildTableAroundBlock(updatedBlock, rawOffset)
 
         // 展开新 block 并定位光标
         this.dom.renderBlockExpanded(newBlock)
@@ -992,15 +1007,11 @@ export class Editor {
       return
     }
 
-    // 光标在 marker 区域（rawOffset > nesting && rawOffset <= prefixLen）
-    // 去除整个 marker，只保留 indent（如有）+ inline 内容
+    // 光标在 marker 区域（rawOffset > nesting && rawOffset <= prefixLen）时按普通
+    // Backspace 删除一个字符，让 Markdown 重新解析决定是降级还是改变深度。
     if (block.type === 'list-item' || block.type === 'heading' || block.type === 'blockquote') {
-      // 保留 indent + 纯文本内容（去掉 marker）
-      const indentStr = nesting > 0 ? rawText.slice(0, nesting) : ''
-      const prefixLen = this.doc.prefixOffset(block.id)
-      const contentStr = rawText.slice(prefixLen)
-      const newRawText = indentStr + contentStr
-      const newCursorRawOffset = nesting  // 光标定位到 indent 末尾（即内容开头）
+      const newRawText = rawText.slice(0, rawOffset - 1) + rawText.slice(rawOffset)
+      const newCursorRawOffset = rawOffset - 1
 
       if (newRawText.trim() === '') {
         const blankBlock = { id: block.id, type: 'blank' as const, inline: [] as any[] }
@@ -1054,6 +1065,22 @@ export class Editor {
     this.scheduler.highlightBlock(mergedBlock.id, BlockVisualState.active)
 
     // 5. 跳过下一次 selectionchange，防止展开/收起闪烁
+    this.skipNextSelectionAction = true
+  }
+
+  private handleMergeWithNextBlock(blockId: string) {
+    const mergeResult = this.doc.mergeBlockWithNext(blockId)
+    if (!mergeResult) return
+
+    const { mergedBlock, cursorRawOffset, removedBlockId } = mergeResult
+
+    this.dom.removeBlockNode(removedBlockId)
+    this.dom.replaceBlock(mergedBlock, mergedBlock)
+    this.dom.forceResetExpanded()
+    this.dom.renderBlockExpanded(mergedBlock)
+    this.dom.setCursorByRawOffset(mergedBlock.id, cursorRawOffset)
+    this.dom.clearHighlight()
+    this.scheduler.highlightBlock(mergedBlock.id, BlockVisualState.active)
     this.skipNextSelectionAction = true
   }
 
@@ -1379,8 +1406,9 @@ export class Editor {
 
     if (block.type === 'code-block' && (block as CodeBlock).code === '') {
       const firstLineBreak = rawText.indexOf('\n')
-      if (firstLineBreak !== -1 && rawOffset === firstLineBreak + 1) {
-        const newRawText = rawText.slice(0, rawOffset) + text + '\n' + rawText.slice(rawOffset)
+      const codeLineCount = (block as CodeBlock).codeLineCount ?? 0
+      if (firstLineBreak !== -1 && codeLineCount > 0 && rawOffset === firstLineBreak + 1 && rawText[rawOffset] === '\n') {
+        const newRawText = rawText.slice(0, rawOffset) + text + rawText.slice(rawOffset)
         this.applyRawReconcile(block, newRawText, rawOffset + text.length)
         return
       }
@@ -1388,6 +1416,10 @@ export class Editor {
 
     // 3. 将字符插入到原始文本中
     const newRawText = rawText.slice(0, rawOffset) + text + rawText.slice(rawOffset)
+
+    if (text === '|' && this.doc.getNextBlockId(block.id) && this.tryRebuildTableAroundBlock(block, rawOffset + text.length, newRawText, 3)) {
+      return
+    }
 
     // 4. 全行 reconcile
     this.applyRawReconcile(block, newRawText, rawOffset + text.length)
@@ -1500,6 +1532,11 @@ export class Editor {
       const fenceIndent = lineBeforeCursor.match(/^(\s*)``$/)?.[1]
 
       if (fenceIndent !== undefined && !isEscaped(rawText, rawOffset - 2)) {
+        const currentFenceRawText = rawText.slice(0, rawOffset) + data + rawText.slice(rawOffset)
+        if (this.tryRebuildCodeBlockAroundFence(block, currentFenceRawText, rawOffset + data.length)) {
+          return true
+        }
+
         const insertion = `${fenceIndent}\`\`\`\n${fenceIndent}\`\`\``
         const newRawText = rawText.slice(0, lineStart) + insertion + rawText.slice(rawOffset)
         this.applyRawReconcile(block, newRawText, lineStart + fenceIndent.length + 3)
@@ -1524,9 +1561,13 @@ export class Editor {
       const mathFenceIndent = lineBeforeCursor.match(/^(\s*)\$$/)?.[1]
       if (mathFenceIndent !== undefined && !isEscaped(rawText, rawOffset - 1)
         && (lineAfterCursor === '' || lineAfterCursor === '$')) {
-        // 生成 $$\n\n$$ 块级公式
         const afterOffset = lineAfterCursor === '$' ? rawOffset + 1 : rawOffset
-        const insertion = `${mathFenceIndent}$$\n${mathFenceIndent}$$`
+        const currentFenceRawText = rawText.slice(0, lineStart) + `${mathFenceIndent}$$` + rawText.slice(afterOffset)
+        if (this.tryRebuildMathBlockAroundFence(block, currentFenceRawText)) {
+          return true
+        }
+        // 没有相邻 fence 可合并时，生成 $$\n\n$$ 空公式块
+        const insertion = `${mathFenceIndent}$$\n${mathFenceIndent}\n${mathFenceIndent}$$`
         const newRawText = rawText.slice(0, lineStart) + insertion + rawText.slice(afterOffset)
         this.applyRawReconcile(block, newRawText, lineStart + mathFenceIndent.length + 2 + 1)
         return true
@@ -1551,6 +1592,170 @@ export class Editor {
     const newRawText = rawText.slice(0, rawOffset) + data + data + rawText.slice(rawOffset)
     this.applyRawReconcile(block, newRawText, rawOffset + 1)
     return true
+  }
+
+  private tryRebuildMathBlockAroundFence(block: BlockModel, currentRawText: string): boolean {
+    if (currentRawText.trim() !== '$$') return false
+
+    const ids = Array.from(this.doc.blocks.keys())
+    const currentIdx = ids.indexOf(block.id)
+    if (currentIdx === -1) return false
+
+    const raws = ids.map(id => id === block.id ? currentRawText : this.doc.getRawText(id))
+
+    const tryApplyRange = (startIdx: number, endIdx: number, cursorRawOffset: number): boolean => {
+      if (startIdx < 0 || endIdx >= ids.length || startIdx >= endIdx) return false
+
+      const candidate = raws.slice(startIdx, endIdx + 1).join('\n')
+
+      const startBlock = this.doc.getBlock(ids[startIdx])
+      if (!startBlock) return false
+
+      const previewBlocks = this.doc.parseBlocksFromRawText(candidate, ids[startIdx])
+      if (previewBlocks.length !== 1 || previewBlocks[0].type !== 'math-block') return false
+
+      const result = this.doc.replaceBlockRangeFromRawText(ids[startIdx], ids[endIdx], candidate)
+      if (!result || result.blocks.length !== 1 || result.blocks[0].type !== 'math-block') return false
+
+      for (const removedId of result.removedBlockIds) {
+        this.dom.removeBlockNode(removedId)
+      }
+
+      const mathBlock = result.blocks[0]
+      this.dom.replaceBlock(startBlock, mathBlock)
+      this.dom.forceResetExpanded()
+      this.dom.renderBlockExpanded(mathBlock)
+      this.dom.setCursorByRawOffset(mathBlock.id, cursorRawOffset)
+      this.dom.clearHighlight()
+      this.scheduler.highlightBlock(mathBlock.id, BlockVisualState.active)
+      this.skipNextSelectionAction = true
+      return true
+    }
+
+    for (let startIdx = currentIdx - 1; startIdx >= 0; startIdx--) {
+      if (raws[startIdx].trim() !== '$$') continue
+      if (tryApplyRange(startIdx, currentIdx, raws.slice(startIdx, currentIdx + 1).join('\n').length)) {
+        return true
+      }
+    }
+
+    for (let endIdx = currentIdx + 1; endIdx < ids.length; endIdx++) {
+      if (raws[endIdx].trim() !== '$$') continue
+      if (tryApplyRange(currentIdx, endIdx, currentRawText.length)) {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  private tryRebuildCodeBlockAroundFence(block: BlockModel, currentRawText: string, currentCursorOffset: number): boolean {
+    if (!/^(`{3,}|~{3,})[ \t]*.*$/.test(currentRawText)) return false
+
+    const ids = Array.from(this.doc.blocks.keys())
+    const currentIdx = ids.indexOf(block.id)
+    if (currentIdx === -1) return false
+
+    const raws = ids.map(id => id === block.id ? currentRawText : this.doc.getRawText(id))
+
+    const tryApplyRange = (startIdx: number, endIdx: number): boolean => {
+      if (startIdx < 0 || endIdx >= ids.length || startIdx >= endIdx) return false
+
+      const candidate = raws.slice(startIdx, endIdx + 1).join('\n')
+      const tokens = initialTokenize(candidate)
+      if (tokens.length !== 1) return false
+
+      const parsed = parseLine(tokens[0])
+      if (parsed.type !== 'code-block') return false
+
+      const startBlock = this.doc.getBlock(ids[startIdx])
+      if (!startBlock) return false
+
+      const result = this.doc.replaceBlockRangeFromRawText(ids[startIdx], ids[endIdx], candidate)
+      if (!result || result.blocks.length !== 1) return false
+
+      for (const removedId of result.removedBlockIds) {
+        this.dom.removeBlockNode(removedId)
+      }
+
+      const cursorRawOffset = raws
+        .slice(startIdx, currentIdx)
+        .reduce((offset, raw) => offset + raw.length + 1, 0) + currentCursorOffset
+      const codeBlock = result.blocks[0]
+      this.dom.replaceBlock(startBlock, codeBlock)
+      this.dom.forceResetExpanded()
+      this.dom.renderBlockExpanded(codeBlock)
+      this.dom.setCursorByRawOffset(codeBlock.id, cursorRawOffset)
+      this.dom.clearHighlight()
+      this.scheduler.highlightBlock(codeBlock.id, BlockVisualState.active)
+      this.skipNextSelectionAction = true
+      return true
+    }
+
+    for (let startIdx = currentIdx - 1; startIdx >= 0; startIdx--) {
+      if (tryApplyRange(startIdx, currentIdx)) return true
+    }
+
+    for (let endIdx = currentIdx + 1; endIdx < ids.length; endIdx++) {
+      if (tryApplyRange(currentIdx, endIdx)) return true
+    }
+
+    return false
+  }
+
+  private tryRebuildTableAroundBlock(block: BlockModel, cursorRawOffset: number, currentRawText?: string, minLineCount: number = 2): boolean {
+    const ids = Array.from(this.doc.blocks.keys())
+    const currentIdx = ids.indexOf(block.id)
+    if (currentIdx === -1) return false
+
+    const raws = ids.map(id => id === block.id ? (currentRawText ?? this.doc.getRawText(id)) : this.doc.getRawText(id))
+
+    const tryApplyRange = (startIdx: number, endIdx: number): boolean => {
+      if (startIdx < 0 || endIdx >= ids.length || startIdx >= endIdx) return false
+
+      const candidate = raws.slice(startIdx, endIdx + 1).join('\n')
+      if (candidate.split('\n').length < minLineCount) return false
+      const tokens = initialTokenize(candidate)
+      if (tokens.length !== 1) return false
+
+      const parsed = parseLine(tokens[0])
+      if (parsed.type !== 'table') return false
+
+      const startBlock = this.doc.getBlock(ids[startIdx])
+      if (!startBlock) return false
+
+      const result = this.doc.replaceBlockRangeFromRawText(ids[startIdx], ids[endIdx], candidate)
+      if (!result || result.blocks.length !== 1 || result.blocks[0].type !== 'table') return false
+
+      for (const removedId of result.removedBlockIds) {
+        this.dom.removeBlockNode(removedId)
+      }
+
+      const tableBlock = result.blocks[0]
+      const tableCursorOffset = raws
+        .slice(startIdx, currentIdx)
+        .reduce((offset, raw) => offset + raw.length + 1, 0) + cursorRawOffset
+      this.dom.replaceBlock(startBlock, tableBlock)
+      this.dom.forceResetExpanded()
+      this.dom.renderBlockExpanded(tableBlock)
+      this.dom.setCursorByRawOffset(tableBlock.id, tableCursorOffset)
+      this.dom.clearHighlight()
+      this.scheduler.highlightBlock(tableBlock.id, BlockVisualState.active)
+      this.skipNextSelectionAction = true
+      return true
+    }
+
+    for (let startIdx = currentIdx - 1; startIdx >= 0; startIdx--) {
+      if (tryApplyRange(startIdx, currentIdx)) return true
+    }
+
+    for (let startIdx = currentIdx - 1; startIdx >= 0; startIdx--) {
+      for (let endIdx = currentIdx + 1; endIdx < ids.length; endIdx++) {
+        if (tryApplyRange(startIdx, endIdx)) return true
+      }
+    }
+
+    return false
   }
 
   private tryCompleteCodeBlockFromOpeningFence(
@@ -2003,7 +2208,7 @@ export class Editor {
         const reader = new FileReader()
         reader.onload = () => {
           const dataUrl = reader.result as string
-          const alt = file.name.replace(/\.[^.]+$/, '') // 文件名去掉扩展名作为 alt
+          const alt = file.name
           resolve(`![${alt}](${dataUrl})`)
         }
         reader.onerror = () => resolve('')

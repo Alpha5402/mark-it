@@ -72,10 +72,7 @@ test.describe('03.1 insert plain chars', () => {
     const id = await blockIdAt(page, 0)
     await placeCaret(page, id, 0)
     await simulateIME(page, '你好', ['n', 'ni', 'nih', 'niha', 'nihao'])
-    // Editor 实现里 compositionEnd 会触发 DOM 最终文本写入；此处只要不崩 + 最终 markdown 包含 "你好" 即可
-    const md = await page.evaluate(() => window.__markit.getMarkdown())
-    // 不同实现可能把 ime 文本放入 dom 再 MutationObserver 同步
-    expect(typeof md).toBe('string')
+    await expectMarkdownEquals(page, '你好')
   })
 
   test('3.1.7 连续 15 次键入不丢字符', async ({ page }) => {

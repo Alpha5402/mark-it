@@ -14,8 +14,8 @@
     "desktop:build": "tauri build"
   },
   "dependencies": {
-    "@mark-it/core": "workspace:*",
     "katex": "^0.16.0",
+    "mark-it-core": "workspace:*",
     "prismjs": "^1.30.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"

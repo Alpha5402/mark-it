@@ -2,7 +2,7 @@ import { RawLine, BlockModel, InlineModel, INLINE_FLAG, HeadingBlock, ListItemBl
 
 const TAB_WIDTH = 4
 
-function parseFencedCodeRaw(raw: string): { language: string; code: string; codeLineCount: number } | null {
+function parseFencedCodeRaw(raw: string): { language: string; code: string; fence: string; codeLineCount: number } | null {
   const lines = raw.split('\n')
   if (lines.length < 2) return null
 
@@ -18,6 +18,7 @@ function parseFencedCodeRaw(raw: string): { language: string; code: string; code
   return {
     language: openMatch[2].trim(),
     code: lines.slice(1, -1).join('\n'),
+    fence,
     codeLineCount: Math.max(0, lines.length - 2)
   }
 }
@@ -417,6 +418,7 @@ export function parseLine(line: RawLine): BlockModel {
       type: 'code-block',
       language: codeBlockMatch.language,
       code: codeBlockMatch.code,
+      fence: codeBlockMatch.fence,
       codeLineCount: codeBlockMatch.codeLineCount,
       inline: []
     } as CodeBlock
@@ -431,6 +433,7 @@ export function parseLine(line: RawLine): BlockModel {
         id: line.id,
         type: 'math-block',
         tex,
+        texLineCount: Math.max(0, mathLines.length - 2),
         inline: []
       } as MathBlock
     }

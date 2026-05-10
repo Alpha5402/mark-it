@@ -5,7 +5,6 @@ import {
   placeCaret,
   blockIdAt,
   getEditorSnapshot,
-  getMarkdown,
   expectBlockCount,
   expectMarkdownEquals,
   setSelection,
@@ -32,33 +31,27 @@ test.describe('02 delete block', () => {
 
   test('2.2 blank block 上 Backspace 合并到上一 block', async ({ page }) => {
     await resetEditor(page, 'hello\n\n')
-    // blank 在 index 1 或 2（取决于 parser）；取最后一个
     const snap0 = await getEditorSnapshot(page)
     const lastId = snap0.blocks[snap0.blocks.length - 1].id
     await placeCaret(page, lastId, 0)
     await page.keyboard.press('Backspace')
-    const after = await getEditorSnapshot(page)
-    expect(after.blockCount).toBeLessThan(snap0.blockCount)
+    await expectMarkdownEquals(page, 'hello\n')
   })
 
-  test('2.3 首个 blank block 上 Backspace 不应崩溃', async ({ page }) => {
+  test('2.3 首个 blank block 上 Backspace → 保持空文档', async ({ page }) => {
     await resetEditor(page, '')
     const id = await blockIdAt(page, 0)
     await placeCaret(page, id, 0)
     await page.keyboard.press('Backspace')
-    // 仍能获取状态，editor 未死
-    const md = await getMarkdown(page)
-    expect(typeof md).toBe('string')
+    await expectMarkdownEquals(page, '')
   })
 
-  test('2.4 行尾 Delete 不会吞掉当前行最后一个字符', async ({ page }) => {
+  test('2.4 行尾 Delete → 删除换行并与下一 block 合并', async ({ page }) => {
     await resetEditor(page, 'abc\ndef')
     const id0 = await blockIdAt(page, 0)
     await placeCaret(page, id0, 'abc'.length)
     await page.keyboard.press('Delete')
-    const md = await getMarkdown(page)
-    // 不应变成 'ab\ndef'，最少要保证 'abc' 被保留
-    expect(md.startsWith('abc')).toBe(true)
+    await expectMarkdownEquals(page, 'abcdef')
   })
 
   test('2.5 删空全部内容 → block 退化为 blank/空 paragraph', async ({ page }) => {
@@ -73,15 +66,14 @@ test.describe('02 delete block', () => {
     expect(['blank', 'paragraph']).toContain(snap.blocks[0].type)
   })
 
-  test('2.6 heading marker 区 Backspace → 降级 paragraph', async ({ page }) => {
+  test('2.6 heading marker 区 Backspace → h2 降为 h1', async ({ page }) => {
     await resetEditor(page, '## Title')
     const id = await blockIdAt(page, 0)
-    // 展开态下在 "# " 后面（rawOffset=1，即第一个 # 之后）按 Backspace
     await placeCaret(page, id, 1)
     await page.keyboard.press('Backspace')
+    await expectMarkdownEquals(page, '# Title')
     const snap = await getEditorSnapshot(page)
-    // 从 h2 要么变 h1，要么变 paragraph
-    expect(['heading', 'paragraph']).toContain(snap.blocks[0].type)
+    expect(snap.blocks[0].type).toBe('heading')
   })
 
   test('2.7 list-item marker 区 Backspace → 退出 list', async ({ page }) => {
@@ -89,8 +81,9 @@ test.describe('02 delete block', () => {
     const id = await blockIdAt(page, 0)
     await placeCaret(page, id, 1) // 在 "- " 之间
     await page.keyboard.press('Backspace')
+    await expectMarkdownEquals(page, ' item')
     const snap = await getEditorSnapshot(page)
-    expect(snap.blocks[0].type).not.toBe('list-item')
+    expect(snap.blocks[0].type).toBe('paragraph')
   })
 
   test('2.8 blockquote marker 区 Backspace → 变 paragraph', async ({ page }) => {
@@ -98,8 +91,9 @@ test.describe('02 delete block', () => {
     const id = await blockIdAt(page, 0)
     await placeCaret(page, id, 1)
     await page.keyboard.press('Backspace')
+    await expectMarkdownEquals(page, 'quoted')
     const snap = await getEditorSnapshot(page)
-    expect(snap.blocks[0].type).not.toBe('blockquote')
+    expect(snap.blocks[0].type).toBe('paragraph')
   })
 
   test('2.10 跨 block 选区后 Backspace → 中间 block 被删除并合并', async ({ page }) => {
