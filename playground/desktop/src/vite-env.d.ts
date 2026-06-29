@@ -32,6 +32,18 @@ type PersistedSessionState = {
   activeTabId: string | null;
 };
 
+type CreateMarkdownFileResult = {
+  ok: boolean;
+  file?: MarkdownFileResult;
+  workspace?: WorkspaceOpenResult | null;
+};
+
+type CreateDirectoryResult = {
+  ok: boolean;
+  path?: string;
+  workspace?: WorkspaceOpenResult | null;
+};
+
 interface Window {
   markItWorkspace?: {
     openFolder: () => Promise<WorkspaceOpenResult | null>;
@@ -43,6 +55,9 @@ interface Window {
     openFile: () => Promise<MarkdownFileResult | null>;
     readFile: (filePath: string) => Promise<MarkdownFileResult>;
     writeFile: (filePath: string, content: string) => Promise<{ ok: boolean }>;
+    createMarkdownFile: (targetPath: string) => Promise<CreateMarkdownFileResult>;
+    createDirectory: (targetPath: string) => Promise<CreateDirectoryResult>;
+    revealPath: (targetPath: string) => Promise<{ ok: boolean }>;
   };
   markItWindow?: {
     getState: () => Promise<{ platform: string; isFullScreen: boolean }>;
