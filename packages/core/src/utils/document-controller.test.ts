@@ -84,6 +84,25 @@ describe('DocumentController raw round-trip', () => {
     expect(empty.getMathBlockContent(snapshot(empty)[0].id)).toBe('')
   })
 
+  test('exposes table content as CSV with escaped cells', () => {
+    const doc = new DocumentController([
+      '| name | note | empty |',
+      '| --- | --- | --- |',
+      '| Ada | hello, world | |',
+      '| Bob | quote "ok" | tail |',
+      'plain',
+    ].join('\n'))
+    const [table, paragraph] = snapshot(doc)
+
+    expect(doc.getTableCsv(table.id)).toBe([
+      'name,note,empty',
+      'Ada,"hello, world",',
+      'Bob,"quote ""ok""",tail',
+    ].join('\n'))
+    expect(doc.getTableCsv(paragraph.id)).toBeNull()
+    expect(doc.getTableCsv('missing')).toBeNull()
+  })
+
   test('keeps whole-line single-line $$ spans as paragraph text', () => {
     const doc = new DocumentController('before\n$$\\frac{a}{b}$$\nafter')
 
