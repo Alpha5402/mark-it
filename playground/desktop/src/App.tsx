@@ -20,7 +20,7 @@ type ContextMenuState =
   | { kind: 'tree-file'; x: number; y: number; node: FileNode }
   | { kind: 'tree-directory'; x: number; y: number; node: FileNode }
   | { kind: 'tab'; x: number; y: number; tabId: string }
-  | { kind: 'editor-block'; x: number; y: number; blockId: string; blockType: string; raw: string; tableColumnIndex?: number }
+  | { kind: 'editor-block'; x: number; y: number; blockId: string; blockType: string; raw: string; tableColumnIndex?: number; tableRowIndex?: number }
   | { kind: 'editor-surface'; x: number; y: number };
 type ContextMenuPayload = ContextMenuState extends infer Menu
   ? Menu extends ContextMenuState
@@ -112,6 +112,15 @@ function getTableColumnIndexFromTarget(target: HTMLElement | null) {
   const cell = target?.closest('th,td') as HTMLTableCellElement | null;
   if (!cell?.closest('.md-table')) return undefined;
   return cell.cellIndex >= 0 ? cell.cellIndex : undefined;
+}
+
+function getTableRowIndexFromTarget(target: HTMLElement | null) {
+  const cell = target?.closest('td') as HTMLTableCellElement | null;
+  if (!cell?.closest('.md-table')) return undefined;
+  const row = cell.parentElement as HTMLTableRowElement | null;
+  if (!row) return undefined;
+  const bodyRowIndex = row.rowIndex - 1;
+  return bodyRowIndex >= 0 ? bodyRowIndex : undefined;
 }
 
 function getTableAlignmentFromRaw(raw: string, columnIndex: number): TableAlignment {
@@ -844,6 +853,9 @@ export default function App() {
       raw: surface.doc.getRawText(blockId),
       tableColumnIndex: block.type === 'table'
         ? getTableColumnIndexFromTarget(target)
+        : undefined,
+      tableRowIndex: block.type === 'table'
+        ? getTableRowIndexFromTarget(target)
         : undefined
     });
   };
@@ -926,6 +938,9 @@ export default function App() {
         : '```';
       const tableColumnIndex = contextMenu.blockType === 'table'
         ? contextMenu.tableColumnIndex
+        : undefined;
+      const tableRowIndex = contextMenu.blockType === 'table'
+        ? contextMenu.tableRowIndex
         : undefined;
       const tableColumnAlignment = typeof tableColumnIndex === 'number'
         ? getTableAlignmentFromRaw(contextMenu.raw, tableColumnIndex)
@@ -1208,11 +1223,19 @@ export default function App() {
             disabled: !canEdit,
             children: createTableAlignmentItems(setTableAllColumnsAlignment)
           },
-          {
-            label: '在表格末尾追加行',
-            disabled: !canEdit,
-            action: () => runBlockCommand((editor) => editor.insertTableRowAfter(contextMenu.blockId))
-          },
+          ...(typeof tableRowIndex === 'number' ? [
+            {
+              label: `在第 ${tableRowIndex + 1} 行下方插入行`,
+              disabled: !canEdit,
+              action: () => runBlockCommand((editor) => editor.insertTableRowAfter(contextMenu.blockId, tableRowIndex))
+            }
+          ] : [
+            {
+              label: '在表格末尾追加行',
+              disabled: !canEdit,
+              action: () => runBlockCommand((editor) => editor.insertTableRowAfter(contextMenu.blockId))
+            }
+          ]),
           ...(typeof tableColumnIndex === 'number' ? [
             {
               label: `在第 ${tableColumnIndex + 1} 列右侧插入列`,
@@ -1226,11 +1249,19 @@ export default function App() {
               action: () => runBlockCommand((editor) => editor.insertTableColumnAfter(contextMenu.blockId))
             }
           ]),
-          {
-            label: '删除表格末尾行',
-            disabled: !canEdit,
-            action: () => runBlockCommand((editor) => editor.deleteTableLastRow(contextMenu.blockId))
-          },
+          ...(typeof tableRowIndex === 'number' ? [
+            {
+              label: `删除第 ${tableRowIndex + 1} 行`,
+              disabled: !canEdit,
+              action: () => runBlockCommand((editor) => editor.deleteTableRow(contextMenu.blockId, tableRowIndex))
+            }
+          ] : [
+            {
+              label: '删除表格末尾行',
+              disabled: !canEdit,
+              action: () => runBlockCommand((editor) => editor.deleteTableLastRow(contextMenu.blockId))
+            }
+          ]),
           ...(typeof tableColumnIndex === 'number' ? [
             {
               label: `删除第 ${tableColumnIndex + 1} 列`,
