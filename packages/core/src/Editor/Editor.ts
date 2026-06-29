@@ -1461,6 +1461,34 @@ export class Editor {
     return this.applyBlockRawCommand(blockId, nextRawText, Math.max(0, this.doc.prefixOffset(blockId) - 1))
   }
 
+  promoteHeadingLevel(blockId: string): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'heading') return false
+
+    const heading = block as HeadingBlock
+    if (heading.headingDepth <= 1) return false
+
+    const rawText = this.doc.getRawText(blockId)
+    const nextRawText = rawText.replace(/^#{2,6}(?=\s)/, '#'.repeat(heading.headingDepth - 1))
+    if (nextRawText === rawText) return false
+
+    return this.applyBlockRawCommand(blockId, nextRawText, Math.max(0, this.doc.prefixOffset(blockId) - 1))
+  }
+
+  demoteHeadingLevel(blockId: string): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'heading') return false
+
+    const heading = block as HeadingBlock
+    if (heading.headingDepth >= 6) return false
+
+    const rawText = this.doc.getRawText(blockId)
+    const nextRawText = rawText.replace(/^#{1,5}(?=\s)/, '#'.repeat(heading.headingDepth + 1))
+    if (nextRawText === rawText) return false
+
+    return this.applyBlockRawCommand(blockId, nextRawText, this.doc.prefixOffset(blockId) + 1)
+  }
+
   setCodeBlockLanguage(blockId: string, language: string): boolean {
     const block = this.doc.getBlock(blockId)
     if (!block || block.type !== 'code-block') return false
