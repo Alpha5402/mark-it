@@ -881,9 +881,11 @@ export default function App() {
       const canEdit = Boolean(editorRef.current);
       const canConvert = canEdit && isConvertibleTextBlock(contextMenu.blockType);
       const isListItem = contextMenu.blockType === 'list-item';
+      const isBlockquote = contextMenu.blockType === 'blockquote';
       const isTaskList = contextMenu.blockType === 'list-item' && isTaskListRaw(contextMenu.raw);
       const isCheckedTask = isCheckedTaskRaw(contextMenu.raw);
       const canOutdentListItem = isListItem && /^\s+/.test(contextMenu.raw);
+      const canDecreaseBlockquote = isBlockquote && /^>/.test(contextMenu.raw);
       const codeLanguage = contextMenu.blockType === 'code-block'
         ? getCodeBlockLanguageFromRaw(contextMenu.raw)
         : '';
@@ -1003,6 +1005,20 @@ export default function App() {
             icon: '⇤',
             disabled: !canEdit || !canOutdentListItem,
             action: () => runBlockCommand((editor) => editor.outdentListItem(contextMenu.blockId))
+          }
+        ] : []),
+        ...(isBlockquote ? [
+          {
+            label: '增加引用层级',
+            icon: '>',
+            disabled: !canEdit,
+            action: () => runBlockCommand((editor) => editor.increaseBlockquoteLevel(contextMenu.blockId))
+          },
+          {
+            label: '减少引用层级',
+            icon: '<',
+            disabled: !canEdit || !canDecreaseBlockquote,
+            action: () => runBlockCommand((editor) => editor.decreaseBlockquoteLevel(contextMenu.blockId))
           }
         ] : []),
         ...(contextMenu.blockType === 'code-block' ? [
