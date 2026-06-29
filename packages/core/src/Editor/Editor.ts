@@ -28,6 +28,13 @@ export type TextBlockConversionTarget =
   | 'ordered-list'
   | 'blockquote'
 
+export type BlockTemplateTarget =
+  | 'paragraph'
+  | 'task-list'
+  | 'code-block'
+  | 'math-block'
+  | 'table'
+
 type InlineCoverageSegment = {
   start: number
   end: number
@@ -1363,6 +1370,22 @@ export class Editor {
     return true
   }
 
+  insertTemplateBlockAfter(blockId: string, template: BlockTemplateTarget): boolean {
+    const anchor = this.doc.getBlock(blockId)
+    if (!anchor) return false
+
+    const details = this.getBlockTemplateDetails(template)
+    if (!details) return false
+
+    const cursorInfo = this.getCurrentCursorInfo(this.controller['captureSelection']?.() ?? null)
+    this.history.pushSnapshot(this.doc.blocks, cursorInfo)
+
+    const inserted = this.doc.createBlockFromRawText(details.rawText, blockId)
+    this.rebuildAndFocusBlock(inserted.id, details.cursorRawOffset)
+    this.notifyContentChange()
+    return true
+  }
+
   convertTextBlock(blockId: string, target: TextBlockConversionTarget): boolean {
     const block = this.doc.getBlock(blockId)
     if (!block) return false
@@ -1485,6 +1508,25 @@ export class Editor {
     if (target === 'unordered-list') return `- ${contentRaw}`
     if (target === 'ordered-list') return `1. ${contentRaw}`
     if (target === 'blockquote') return `> ${contentRaw}`
+    return null
+  }
+
+  private getBlockTemplateDetails(template: BlockTemplateTarget): { rawText: string; cursorRawOffset: number } | null {
+    if (template === 'paragraph') {
+      return { rawText: '', cursorRawOffset: 0 }
+    }
+    if (template === 'task-list') {
+      return { rawText: '- [ ] ', cursorRawOffset: 6 }
+    }
+    if (template === 'code-block') {
+      return { rawText: '```\n\n```', cursorRawOffset: 4 }
+    }
+    if (template === 'math-block') {
+      return { rawText: '$$\n\n$$', cursorRawOffset: 3 }
+    }
+    if (template === 'table') {
+      return { rawText: '|  |  |\n| --- | --- |\n|  |  |', cursorRawOffset: 2 }
+    }
     return null
   }
 
