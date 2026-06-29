@@ -67,6 +67,33 @@ describe('Editor block commands', () => {
     editor.destroy()
   })
 
+  test('moves blocks up and down without rewriting their raw markdown', () => {
+    const editor = createEditor('intro\n```ts\nconst x = 1\n```\n| a | b |\n| --- | --- |\n| 1 | 2 |')
+    const [paragraph, code, table] = snapshot(editor)
+
+    expect(editor.moveBlockUp(paragraph.id)).toBe(false)
+
+    expect(editor.moveBlockUp(code.id)).toBe(true)
+    expect(snapshot(editor).map(block => block.raw)).toEqual([
+      '```ts\nconst x = 1\n```',
+      'intro',
+      '| a | b |\n| --- | --- |\n| 1 | 2 |',
+    ])
+
+    expect(editor.moveBlockDown(code.id)).toBe(true)
+    expect(snapshot(editor).map(block => block.raw)).toEqual([
+      'intro',
+      '```ts\nconst x = 1\n```',
+      '| a | b |\n| --- | --- |\n| 1 | 2 |',
+    ])
+
+    expect(editor.moveBlockDown(table.id)).toBe(false)
+    expect(editor.moveBlockUp('missing')).toBe(false)
+    expect(editor.moveBlockDown('missing')).toBe(false)
+
+    editor.destroy()
+  })
+
   test('converts text blocks while preserving inline markdown content', () => {
     const editor = createEditor('**bold** text')
     const id = snapshot(editor)[0].id
