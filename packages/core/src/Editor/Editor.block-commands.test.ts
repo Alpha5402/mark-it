@@ -40,6 +40,33 @@ describe('Editor block commands', () => {
     editor.destroy()
   })
 
+  test('duplicates blocks by preserving their raw markdown', () => {
+    const editor = createEditor('intro\n```ts\nconst x = 1\n```\n| a | b |\n| --- | --- |\n| 1 | 2 |')
+    const [paragraph, code, table] = snapshot(editor)
+
+    expect(editor.duplicateBlockAfter(paragraph.id)).toBe(true)
+    expect(snapshot(editor).slice(0, 2)).toMatchObject([
+      { type: 'paragraph', raw: 'intro' },
+      { type: 'paragraph', raw: 'intro' },
+    ])
+
+    expect(editor.duplicateBlockAfter(code.id)).toBe(true)
+    expect(snapshot(editor).slice(2, 4)).toMatchObject([
+      { type: 'code-block', raw: '```ts\nconst x = 1\n```' },
+      { type: 'code-block', raw: '```ts\nconst x = 1\n```' },
+    ])
+
+    expect(editor.duplicateBlockAfter(table.id)).toBe(true)
+    expect(snapshot(editor).slice(4, 6)).toMatchObject([
+      { type: 'table', raw: '| a | b |\n| --- | --- |\n| 1 | 2 |' },
+      { type: 'table', raw: '| a | b |\n| --- | --- |\n| 1 | 2 |' },
+    ])
+
+    expect(editor.duplicateBlockAfter('missing')).toBe(false)
+
+    editor.destroy()
+  })
+
   test('converts text blocks while preserving inline markdown content', () => {
     const editor = createEditor('**bold** text')
     const id = snapshot(editor)[0].id
