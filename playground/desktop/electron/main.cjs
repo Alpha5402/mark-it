@@ -3,6 +3,57 @@ const fs = require('fs');
 const path = require('path');
 
 const isDev = !app.isPackaged;
+const stateFileName = 'workspace-state.json';
+const sessionFileName = 'tab-session.json';
+const titleBarHeight = 46;
+const trafficLightSize = 14;
+
+function getStateFilePath() {
+  return path.join(app.getPath('userData'), stateFileName);
+}
+
+function getSessionFilePath() {
+  return path.join(app.getPath('userData'), sessionFileName);
+}
+
+function readWorkspaceState() {
+  try {
+    const stateFilePath = getStateFilePath();
+    if (!fs.existsSync(stateFilePath)) return null;
+    const payload = JSON.parse(fs.readFileSync(stateFilePath, 'utf8'));
+    const rootPath = typeof payload?.rootPath === 'string' ? payload.rootPath : '';
+    return rootPath ? { rootPath } : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeWorkspaceState(rootPath) {
+  try {
+    fs.writeFileSync(getStateFilePath(), JSON.stringify({ rootPath }), 'utf8');
+  } catch {
+    // ignore persistence errors to avoid interrupting user flows
+  }
+}
+
+function readSessionState() {
+  try {
+    const sessionFilePath = getSessionFilePath();
+    if (!fs.existsSync(sessionFilePath)) return null;
+    return JSON.parse(fs.readFileSync(sessionFilePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function writeSessionState(payload) {
+  try {
+    fs.writeFileSync(getSessionFilePath(), JSON.stringify(payload), 'utf8');
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
+}
 
 function toTreeNode(entryPath) {
   const stat = fs.statSync(entryPath);
@@ -32,10 +83,78 @@ async function chooseWorkspace(properties) {
 
   if (result.canceled || !result.filePaths[0]) return null;
   const folderPath = result.filePaths[0];
+  writeWorkspaceState(folderPath);
   return {
     rootPath: folderPath,
     rootName: path.basename(folderPath),
     tree: toTreeNode(folderPath)
+  };
+}
+
+function restoreLastWorkspace() {
+  const workspaceState = readWorkspaceState();
+  const rootPath = workspaceState?.rootPath;
+  if (!rootPath) return null;
+
+  try {
+    const stat = fs.statSync(rootPath);
+    if (!stat.isDirectory()) return null;
+    return {
+      rootPath,
+      rootName: path.basename(rootPath),
+      tree: toTreeNode(rootPath)
+    };
+  } catch {
+    return null;
+  }
+}
+
+function restoreTabSession() {
+  const payload = readSessionState();
+  if (!payload || !Array.isArray(payload.tabs)) return { tabs: [], activeTabId: null };
+
+  const restoredTabs = payload.tabs
+    .map((item) => {
+      const id = typeof item?.id === 'string' ? item.id : '';
+      const name = typeof item?.name === 'string' ? item.name : '';
+      const pathValue = typeof item?.path === 'string' && item.path ? item.path : null;
+      const dirtyContent = typeof item?.content === 'string' ? item.content : '';
+      const isDirty = Boolean(item?.isDirty);
+      if (!id || !name) return null;
+
+      if (!pathValue) {
+        return {
+          id,
+          path: null,
+          name,
+          content: dirtyContent,
+          isDirty
+        };
+      }
+
+      try {
+        const stat = fs.statSync(pathValue);
+        if (!stat.isFile()) return null;
+        const content = isDirty ? dirtyContent : fs.readFileSync(pathValue, 'utf8');
+        return {
+          id,
+          path: pathValue,
+          name,
+          content,
+          isDirty
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+
+  const activeTabId = typeof payload.activeTabId === 'string' ? payload.activeTabId : null;
+  const hasActiveTab = Boolean(activeTabId && restoredTabs.some((tab) => tab.id === activeTabId));
+
+  return {
+    tabs: restoredTabs,
+    activeTabId: hasActiveTab ? activeTabId : restoredTabs[0]?.id ?? null
   };
 }
 
@@ -49,6 +168,10 @@ function createWindow() {
     icon: path.join(__dirname, 'icon.icns'),
     backgroundColor: '#e8edf1',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    titleBarOverlay: process.platform === 'darwin',
+    trafficLightPosition: process.platform === 'darwin'
+      ? { x: 16, y: Math.round((titleBarHeight - trafficLightSize) / 2) }
+      : undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -79,11 +202,42 @@ function createWindow() {
   win.webContents.on('did-finish-load', sendWindowState);
   win.on('enter-full-screen', sendWindowState);
   win.on('leave-full-screen', sendWindowState);
+
+  let hasDirtyTabs = false;
+  let isClosingConfirmed = false;
+  const handleDirtyState = (_event, payload) => {
+    hasDirtyTabs = Boolean(payload?.hasDirtyTabs);
+  };
+  ipcMain.on('workspace:dirty-state', handleDirtyState);
+  win.on('closed', () => {
+    ipcMain.removeListener('workspace:dirty-state', handleDirtyState);
+  });
+
+  win.on('close', (event) => {
+    if (isClosingConfirmed || !hasDirtyTabs) return;
+    event.preventDefault();
+    const choice = dialog.showMessageBoxSync(win, {
+      type: 'warning',
+      buttons: ['取消', '仍然退出'],
+      defaultId: 0,
+      cancelId: 0,
+      title: '未保存更改',
+      message: '当前有未保存的文档内容，确定退出 Mark It 吗？'
+    });
+
+    if (choice === 1) {
+      isClosingConfirmed = true;
+      win.close();
+    }
+  });
 }
 
 app.whenReady().then(() => {
   ipcMain.handle('workspace:open-folder', () => chooseWorkspace(['openDirectory']));
   ipcMain.handle('workspace:new-folder', () => chooseWorkspace(['openDirectory', 'createDirectory']));
+  ipcMain.handle('workspace:restore-last-folder', () => restoreLastWorkspace());
+  ipcMain.handle('workspace:save-session', (_event, payload) => writeSessionState(payload));
+  ipcMain.handle('workspace:restore-session', () => restoreTabSession());
   ipcMain.handle('workspace:open-file', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openFile'],

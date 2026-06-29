@@ -4,9 +4,32 @@ import { DOMScheduler } from '../utils/DOMScheduler';
 import { HistoryManager, type CursorInfo } from '../utils/HistoryManager';
 import { EditorView } from './EditorView';
 import { EditorActionType, EventController, type EditorActionContext, type SelectionSnapshot } from './EditorEventController';
-import { BlockModel, BlockVisualState, ListItemBlock, INLINE_FLAG, HeadingBlock, BlockquoteBlock, CodeBlock, TableBlock, InlineModel, type DocumentMetadata } from '../types';
+import { BlockModel, BlockVisualState, ListItemBlock, INLINE_FLAG, HeadingBlock, BlockquoteBlock, CodeBlock, TableBlock, InlineModel, MathBlock, type DocumentMetadata } from '../types';
 import { initialTokenize } from '../utils/tokenize';
 import { parseLine } from '../utils/parse';
+
+export type InlineFormatStatus = 'active' | 'inactive' | 'mixed'
+
+export type InlineFormatState = {
+  bold: InlineFormatStatus
+  italic: InlineFormatStatus
+  strikethrough: InlineFormatStatus
+  highlight: InlineFormatStatus
+  code: InlineFormatStatus
+  link: InlineFormatStatus
+}
+
+type InlineCoverageSegment = {
+  start: number
+  end: number
+  marks: number
+  link: boolean
+}
+
+type RawInlineCoverage = {
+  segments: InlineCoverageSegment[]
+  rawLength: number
+}
 
 export class Editor {
   view: EditorView
@@ -17,6 +40,16 @@ export class Editor {
   private onChange?: (content: string) => void;
   isHandlingDelete: boolean = false
   controller: EventController
+  private handleDocumentMouseDown = (event: MouseEvent) => {
+    if (event.button !== 0 || event.target !== this.view.document) return
+
+    const blockEls = Array.from(this.view.area.querySelectorAll<HTMLElement>('.md-line-block'))
+    const lastBlockEl = blockEls[blockEls.length - 1]
+    if (lastBlockEl && event.clientY < lastBlockEl.getBoundingClientRect().bottom) return
+
+    event.preventDefault()
+    this.moveCursorToDocumentEnd()
+  }
   private compositionContext: { blockId: string, startOffset: number, isInMarker: boolean } | null = null
   /** Undo/Redo 后跳过紧随的 SelectionChange 事件，防止展开/收起闪烁 */
   private skipNextSelectionAction: boolean = false
@@ -55,6 +88,9 @@ export class Editor {
       // 修改操作完成后，通知内容变化
       this.notifyContentChange()
     })
+    this.view.document.addEventListener('mousedown', this.handleDocumentMouseDown)
+    this.view.area.addEventListener('mousedown', this.handleBlockMouseDown)
+    this.view.area.addEventListener('mousedown', this.handleCodeBlockMouseDown)
 
     // 保存初始状态作为第一个快照
     this.history.pushSnapshot(this.doc.blocks)
@@ -538,6 +574,7 @@ export class Editor {
         if (currentBlock.type === 'code-block') {
           let effectiveOff = rawOffset ?? 0
           const firstLineBreak = rawText.indexOf('\n')
+          if (this.exitFencedBlockAfterClosingLine(currentBlock, rawText, effectiveOff)) return
 
           // 光标在开头 fence / 语言标记行时，Enter 创建第 1 行空代码行。
           if (firstLineBreak !== -1 && effectiveOff <= firstLineBreak) {
@@ -560,6 +597,7 @@ export class Editor {
         if (currentBlock.type === 'math-block') {
           let effectiveOff = rawOffset ?? 0
           const firstLineBreak = rawText.indexOf('\n')
+          if (this.exitFencedBlockAfterClosingLine(currentBlock, rawText, effectiveOff)) return
 
           // 光标在开头 $$ 行时，Enter 在 $$ 后插入新行
           if (firstLineBreak !== -1 && effectiveOff <= firstLineBreak) {
@@ -739,6 +777,12 @@ export class Editor {
       if (data) {
         this.handleFootnoteJump(data)
       }
+      return
+    }
+
+    // ========== 文档末尾空白区域点击 ==========
+    if (type === EditorActionType.BlankAreaClick) {
+      this.moveCursorToDocumentEnd()
       return
     }
 
@@ -1137,6 +1181,9 @@ export class Editor {
       this.crossBlockExpandRaf = null
     }
     this.controller.destroy()
+    this.view.document.removeEventListener('mousedown', this.handleDocumentMouseDown)
+    this.view.area.removeEventListener('mousedown', this.handleBlockMouseDown)
+    this.view.area.removeEventListener('mousedown', this.handleCodeBlockMouseDown)
     this.dom.destroy()
     this.scheduler.destroy()
     this.view.destroy()
@@ -1277,6 +1324,50 @@ export class Editor {
   /** 插入链接 */
   insertLink(): void {
     this.executeFormat('link')
+  }
+
+  /**
+   * 获取当前非折叠选区内行内格式状态。
+   * active 表示选区全部处于该格式，inactive 表示全部不处于该格式，
+   * mixed 表示选区内部存在格式差异，调用方应视为歧义状态。
+   */
+  getSelectionInlineFormatState(): InlineFormatState | null {
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed || !sel.anchorNode || !sel.focusNode) return null
+    if (!this.view.area.contains(sel.anchorNode) || !this.view.area.contains(sel.focusNode)) return null
+
+    const anchorBlockId = getIdFromBlock(sel.anchorNode)
+    const focusBlockId = getIdFromBlock(sel.focusNode)
+    if (!anchorBlockId || !focusBlockId) return null
+    if (anchorBlockId !== focusBlockId) return createMixedInlineFormatState()
+
+    const block = this.doc.getBlock(anchorBlockId)
+    const blockEl = this.dom.getNodeById(anchorBlockId)
+    if (!block || !blockEl || !block.inline) return createMixedInlineFormatState()
+
+    if (this.dom.getExpandedBlockId() === anchorBlockId) {
+      const range = getSelectionRawRange(blockEl, {
+        anchorNode: sel.anchorNode,
+        anchorOffset: sel.anchorOffset,
+        focusNode: sel.focusNode,
+        focusOffset: sel.focusOffset,
+        isCollapsed: sel.isCollapsed
+      })
+      if (!range || range.start === range.end) return null
+
+      return getInlineFormatStateForRawRange(block.inline, range.start, range.end)
+    }
+
+    const prefixOffset = this.doc.prefixOffset(anchorBlockId)
+    const anchorOffset = computeSemanticOffset(blockEl, sel.anchorNode, sel.anchorOffset, prefixOffset)
+    const focusOffset = computeSemanticOffset(blockEl, sel.focusNode, sel.focusOffset, prefixOffset)
+    if (anchorOffset === null || focusOffset === null) return createMixedInlineFormatState()
+
+    const start = Math.max(0, Math.min(anchorOffset, focusOffset) - prefixOffset)
+    const end = Math.max(0, Math.max(anchorOffset, focusOffset) - prefixOffset)
+    if (start === end) return null
+
+    return getInlineFormatStateForRange(block.inline, start, end)
   }
 
   /**
@@ -1501,6 +1592,98 @@ export class Editor {
 
     // 用 rawOffset 在新 DOM 中定位光标
     this.dom.setCursorByRawOffset(targetBlock.id, cursorRawOffset)
+  }
+
+  private applyRawReconcileAndSelect(
+    block: BlockModel,
+    newRawText: string,
+    selectionStartRawOffset: number,
+    selectionEndRawOffset: number
+  ) {
+    this.applyRawReconcile(block, newRawText, selectionEndRawOffset)
+    this.dom.setSelectionByRawOffsets(
+      block.id,
+      selectionStartRawOffset,
+      block.id,
+      selectionEndRawOffset
+    )
+  }
+
+  private exitFencedBlockAfterClosingLine(block: BlockModel, rawText: string, rawOffset: number): boolean {
+    if (block.type !== 'code-block' && block.type !== 'math-block') return false
+
+    const closingLineStart = block.type === 'math-block' && (block as MathBlock).singleLine
+      ? rawText.lastIndexOf('$$')
+      : rawText.lastIndexOf('\n') + 1
+    if (closingLineStart <= 0 || rawOffset < closingLineStart) return false
+
+    this.dom.collapseBlock(block)
+    this.dom.forceResetExpanded()
+
+    const newBlock = this.doc.createBlockFromRawText('', block.id)
+    this.dom.insertBlock(block, newBlock)
+    this.dom.renderBlockExpanded(newBlock)
+    this.dom.setCursorByRawOffset(newBlock.id, 0)
+    this.dom.clearHighlight()
+    this.scheduler.highlightBlock(newBlock.id, BlockVisualState.active)
+    this.skipNextSelectionAction = true
+
+    return true
+  }
+
+  private moveCursorToDocumentEnd(): void {
+    const blocks = Array.from(this.doc.getBlocks().values())
+    const lastBlock = blocks[blocks.length - 1]
+    if (!lastBlock) return
+
+    const expandedBlockId = this.dom.getExpandedBlockId()
+    if (expandedBlockId && expandedBlockId !== lastBlock.id) {
+      const expandedBlock = this.doc.getBlock(expandedBlockId)
+      if (expandedBlock) this.dom.collapseBlock(expandedBlock)
+    }
+
+    this.dom.forceResetExpanded()
+    this.dom.renderBlockExpanded(lastBlock)
+    this.dom.setCursorByRawOffset(lastBlock.id, this.doc.getRawText(lastBlock.id).length)
+    this.dom.clearHighlight()
+    this.scheduler.highlightBlock(lastBlock.id, BlockVisualState.active)
+    this.skipNextSelectionAction = true
+  }
+
+  private handleCodeBlockMouseDown = (event: MouseEvent) => {
+    if (event.button !== 0) return
+
+    const target = event.target as HTMLElement | null
+    const codeEl = target?.closest('.md-code-block')
+    if (!codeEl || !this.view.area.contains(codeEl)) return
+
+    const blockEl = codeEl.closest('.md-line-block') as HTMLElement | null
+    const blockId = blockEl?.dataset.blockId
+    const block = blockId ? this.doc.getBlock(blockId) : undefined
+    if (!block || block.type !== 'code-block') return
+    if (this.dom.getExpandedBlockId() === block.id) return
+
+    event.preventDefault()
+
+    this.dom.expandBlock(block.id, block)
+    this.dom.clearHighlight()
+    this.scheduler.highlightBlock(block.id, BlockVisualState.active)
+    this.skipNextSelectionAction = true
+  }
+
+  private handleBlockMouseDown = (event: MouseEvent) => {
+    if (event.button !== 0) return
+
+    const target = event.target as HTMLElement | null
+    const blockEl = target?.closest('.md-line-block') as HTMLElement | null
+    const clickedBlockId = blockEl?.dataset.blockId
+    const expandedBlockId = this.dom.getExpandedBlockId()
+    if (!clickedBlockId || !expandedBlockId || clickedBlockId === expandedBlockId) return
+
+    const expandedBlock = this.doc.getBlock(expandedBlockId)
+    if (expandedBlock) {
+      this.dom.collapseBlock(expandedBlock)
+    }
   }
 
   private tryHandleMarkdownAutoComplete(
@@ -2001,9 +2184,7 @@ export class Editor {
         if (!range) return
         const selectedText = rawText.slice(range.start, range.end)
         const newRawText = rawText.slice(0, range.start) + `[${selectedText}](url)` + rawText.slice(range.end)
-        // 光标放在 (url) 的 url 上
-        const cursorPos = range.start + selectedText.length + 3  // [text](|url)
-        this.applyRawReconcile(block, newRawText, cursorPos)
+        this.applyRawReconcileAndSelect(block, newRawText, range.start + 1, range.start + 1 + selectedText.length)
       }
       return
     }
@@ -2037,7 +2218,7 @@ export class Editor {
         // 移除标记符
         const unwrapped = selectedText.slice(marker.length, selectedText.length - marker.length)
         const newRawText = rawText.slice(0, range.start) + unwrapped + rawText.slice(range.end)
-        this.applyRawReconcile(block, newRawText, range.start + unwrapped.length)
+        this.applyRawReconcileAndSelect(block, newRawText, range.start, range.start + unwrapped.length)
       } else if (
         range.start >= marker.length &&
         rawText.slice(range.start - marker.length, range.start) === marker &&
@@ -2045,11 +2226,11 @@ export class Editor {
       ) {
         // 标记符在选区外围
         const newRawText = rawText.slice(0, range.start - marker.length) + selectedText + rawText.slice(range.end + marker.length)
-        this.applyRawReconcile(block, newRawText, range.start - marker.length + selectedText.length)
+        this.applyRawReconcileAndSelect(block, newRawText, range.start - marker.length, range.start - marker.length + selectedText.length)
       } else {
         // 添加标记符
         const newRawText = rawText.slice(0, range.start) + marker + selectedText + marker + rawText.slice(range.end)
-        this.applyRawReconcile(block, newRawText, range.start + marker.length + selectedText.length)
+        this.applyRawReconcileAndSelect(block, newRawText, range.start + marker.length, range.start + marker.length + selectedText.length)
       }
     }
   }
@@ -2816,6 +2997,253 @@ function getSelectionRawRange(
   return {
     start: Math.min(anchorOffset, focusOffset),
     end: Math.max(anchorOffset, focusOffset)
+  }
+}
+
+function createInactiveInlineFormatState(): InlineFormatState {
+  return {
+    bold: 'inactive',
+    italic: 'inactive',
+    strikethrough: 'inactive',
+    highlight: 'inactive',
+    code: 'inactive',
+    link: 'inactive'
+  }
+}
+
+function createMixedInlineFormatState(): InlineFormatState {
+  return {
+    bold: 'mixed',
+    italic: 'mixed',
+    strikethrough: 'mixed',
+    highlight: 'mixed',
+    code: 'mixed',
+    link: 'mixed'
+  }
+}
+
+function getInlineFormatStateForRange(
+  inlines: InlineModel[],
+  start: number,
+  end: number
+): InlineFormatState {
+  const segments = collectInlineCoverageSegments(inlines)
+    .filter(segment => segment.end > start && segment.start < end)
+
+  if (segments.length === 0) return createInactiveInlineFormatState()
+
+  return getInlineFormatStateFromSegments(segments)
+}
+
+function getInlineFormatStateForRawRange(
+  inlines: InlineModel[],
+  start: number,
+  end: number
+): InlineFormatState {
+  const segments = collectRawInlineCoverageSegments(inlines).segments
+    .filter(segment => segment.end > start && segment.start < end)
+
+  if (segments.length === 0) return createInactiveInlineFormatState()
+
+  return getInlineFormatStateFromSegments(segments)
+}
+
+function getInlineFormatStateFromSegments(segments: InlineCoverageSegment[]): InlineFormatState {
+  const state: InlineFormatState = {
+    bold: getSegmentStatus(segments, INLINE_FLAG.BOLD),
+    italic: getSegmentStatus(segments, INLINE_FLAG.ITALIC),
+    strikethrough: getSegmentStatus(segments, INLINE_FLAG.STRIKE),
+    highlight: getSegmentStatus(segments, INLINE_FLAG.HIGHLIGHT),
+    code: getSegmentStatus(segments, INLINE_FLAG.CODE),
+    link: getLinkSegmentStatus(segments)
+  }
+  const signatures = new Set(segments.map(segment => `${segment.marks}:${segment.link}`))
+  if (signatures.size <= 1) return state
+
+  return {
+    bold: state.bold === 'inactive' ? 'inactive' : 'mixed',
+    italic: state.italic === 'inactive' ? 'inactive' : 'mixed',
+    strikethrough: state.strikethrough === 'inactive' ? 'inactive' : 'mixed',
+    highlight: state.highlight === 'inactive' ? 'inactive' : 'mixed',
+    code: state.code === 'inactive' ? 'inactive' : 'mixed',
+    link: state.link === 'inactive' ? 'inactive' : 'mixed'
+  }
+}
+
+function getSegmentStatus(
+  segments: InlineCoverageSegment[],
+  flag: INLINE_FLAG
+): InlineFormatStatus {
+  const hasActive = segments.some(segment => Boolean(segment.marks & flag))
+  const hasInactive = segments.some(segment => !Boolean(segment.marks & flag))
+  if (hasActive && hasInactive) return 'mixed'
+  return hasActive ? 'active' : 'inactive'
+}
+
+function getLinkSegmentStatus(segments: InlineCoverageSegment[]): InlineFormatStatus {
+  const hasActive = segments.some(segment => segment.link)
+  const hasInactive = segments.some(segment => !segment.link)
+  if (hasActive && hasInactive) return 'mixed'
+  return hasActive ? 'active' : 'inactive'
+}
+
+function collectInlineCoverageSegments(
+  inlines: InlineModel[],
+  inheritedMarks = 0,
+  baseOffset = 0,
+  inLink = false
+): InlineCoverageSegment[] {
+  const segments: InlineCoverageSegment[] = []
+
+  for (const inline of inlines) {
+    const marks = inheritedMarks | inline.marks
+    const start = baseOffset + inline.offset
+
+    if (inline.type === 'text') {
+      segments.push({
+        start,
+        end: start + inline.text.length,
+        marks,
+        link: inLink
+      })
+      continue
+    }
+
+    if (inline.type === 'link') {
+      segments.push(...collectInlineCoverageSegments(inline.children, marks, start, true))
+      continue
+    }
+
+    if (inline.type === 'image') {
+      segments.push({
+        start,
+        end: start + inline.alt.length,
+        marks,
+        link: inLink
+      })
+      continue
+    }
+
+    if (inline.type === 'math') {
+      segments.push({
+        start,
+        end: start + inline.tex.length,
+        marks,
+        link: inLink
+      })
+      continue
+    }
+
+    if (inline.type === 'footnote-ref') {
+      segments.push({
+        start,
+        end: start + inline.id.length,
+        marks,
+        link: inLink
+      })
+    }
+  }
+
+  return segments.filter(segment => segment.end > segment.start)
+}
+
+function collectRawInlineCoverageSegments(
+  inlines: InlineModel[],
+  inheritedMarks = 0,
+  baseOffset = 0,
+  inLink = false
+): RawInlineCoverage {
+  const segments: InlineCoverageSegment[] = []
+  let rawOffset = 0
+
+  for (const inline of inlines) {
+    const marks = inheritedMarks | inline.marks
+    const inlineStart = baseOffset + rawOffset
+
+    if (inline.type === 'text') {
+      if (inline.rawStart !== undefined && inline.rawEnd !== undefined) {
+        segments.push({
+          start: baseOffset + inline.rawStart,
+          end: baseOffset + inline.rawEnd,
+          marks,
+          link: inLink
+        })
+        rawOffset = Math.max(rawOffset, inline.rawEnd)
+        continue
+      }
+
+      const prefixLength = inline.markers && inline.marks !== 0 ? inline.markers.prefix.length : 0
+      const suffixLength = inline.markers && inline.marks !== 0 ? inline.markers.suffix.length : 0
+      const contentStart = inlineStart + prefixLength
+      const contentEnd = contentStart + inline.text.length
+      segments.push({
+        start: contentStart,
+        end: contentEnd,
+        marks,
+        link: inLink
+      })
+      rawOffset += prefixLength + inline.text.length + suffixLength
+      continue
+    }
+
+    if (inline.type === 'link') {
+      const linkStart = inline.rawStart !== undefined ? baseOffset + inline.rawStart : inlineStart
+      const linkTextCoverage = collectRawInlineCoverageSegments(inline.children, marks, linkStart + 1, true)
+      segments.push(...linkTextCoverage.segments)
+      rawOffset = inline.rawEnd !== undefined
+        ? Math.max(rawOffset, inline.rawEnd)
+        : rawOffset + 1 + linkTextCoverage.rawLength + 2 + inline.href.length + 1
+      continue
+    }
+
+    if (inline.type === 'image') {
+      const contentStart = inline.rawStart !== undefined ? baseOffset + inline.rawStart : inlineStart + 2
+      const contentEnd = inline.rawEnd !== undefined ? baseOffset + inline.rawEnd : contentStart + inline.alt.length
+      segments.push({
+        start: contentStart,
+        end: contentEnd,
+        marks,
+        link: inLink
+      })
+      rawOffset = inline.rawEnd !== undefined
+        ? Math.max(rawOffset, inline.rawEnd)
+        : rawOffset + 2 + inline.alt.length + 2 + inline.src.length + 1
+      continue
+    }
+
+    if (inline.type === 'math') {
+      const contentStart = inline.rawStart !== undefined ? baseOffset + inline.rawStart : inlineStart + 1
+      const contentEnd = inline.rawEnd !== undefined ? baseOffset + inline.rawEnd : contentStart + inline.tex.length
+      segments.push({
+        start: contentStart,
+        end: contentEnd,
+        marks,
+        link: inLink
+      })
+      rawOffset = inline.rawEnd !== undefined
+        ? Math.max(rawOffset, inline.rawEnd)
+        : rawOffset + inline.tex.length + 2
+      continue
+    }
+
+    if (inline.type === 'footnote-ref') {
+      const contentStart = inline.rawStart !== undefined ? baseOffset + inline.rawStart : inlineStart + 2
+      const contentEnd = inline.rawEnd !== undefined ? baseOffset + inline.rawEnd : contentStart + inline.id.length
+      segments.push({
+        start: contentStart,
+        end: contentEnd,
+        marks,
+        link: inLink
+      })
+      rawOffset = inline.rawEnd !== undefined
+        ? Math.max(rawOffset, inline.rawEnd)
+        : rawOffset + inline.id.length + 3
+    }
+  }
+
+  return {
+    segments: segments.filter(segment => segment.end > segment.start),
+    rawLength: rawOffset
   }
 }
 

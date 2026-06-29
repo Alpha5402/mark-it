@@ -23,6 +23,19 @@ function parseFencedCodeRaw(raw: string): { language: string; code: string; fenc
   }
 }
 
+function parseMathBlockRaw(raw: string): { tex: string; texLineCount: number; singleLine: boolean } | null {
+  const mathLines = raw.split('\n')
+  if (mathLines.length >= 2 && mathLines[0].trim() === '$$' && mathLines[mathLines.length - 1].trim() === '$$') {
+    return {
+      tex: mathLines.slice(1, -1).join('\n'),
+      texLineCount: Math.max(0, mathLines.length - 2),
+      singleLine: false
+    }
+  }
+
+  return null
+}
+
 /**
  * 标记符 token，记录在原始文本中的位置和类型
  */
@@ -198,6 +211,7 @@ export function inlineParse(input: string): {
 
   let pos = 0
   let buffer = ''
+  let bufferRawStart: number | null = null
 
   const flush = () => {
     if (!buffer) return
@@ -218,10 +232,13 @@ export function inlineParse(input: string): {
       text: buffer,
       marks: currentMarks,
       offset: logicalOffset - buffer.length,
+      rawStart: bufferRawStart ?? pos - buffer.length,
+      rawEnd: pos,
       dirty: false,
       markers
     })
     buffer = ''
+    bufferRawStart = null
   }
 
   while (pos < input.length) {
@@ -238,6 +255,8 @@ export function inlineParse(input: string): {
             tex,
             marks: currentMarks,
             offset: logicalOffset,
+            rawStart: pos + 1,
+            rawEnd: end,
             dirty: false
           } as MathInline)
           logicalOffset += tex.length
@@ -260,6 +279,8 @@ export function inlineParse(input: string): {
             id: footnoteId,
             marks: currentMarks,
             offset: logicalOffset,
+            rawStart: pos + 2,
+            rawEnd: closeBracket,
             dirty: false
           } as FootnoteRefInline)
           logicalOffset += footnoteId.length
@@ -284,6 +305,8 @@ export function inlineParse(input: string): {
           src,
           marks: currentMarks,
           offset: logicalOffset,
+          rawStart: link.start + 2,
+          rawEnd: link.closeBracket,
           dirty: false
         })
 
@@ -301,6 +324,8 @@ export function inlineParse(input: string): {
           href,
           marks: currentMarks,
           offset: logicalOffset,
+          rawStart: link.start,
+          rawEnd: link.closeParen + 1,
           dirty: false
         })
 
@@ -329,6 +354,8 @@ export function inlineParse(input: string): {
               text: codeText,
               marks: INLINE_FLAG.CODE,
               offset: logicalOffset,
+              rawStart: token.pos + token.len,
+              rawEnd: closeToken.pos,
               dirty: false,
               markers: { prefix: '`', suffix: '`' }
             })
@@ -361,6 +388,7 @@ export function inlineParse(input: string): {
         continue
       } else {
         // 未配对的标记符 → 当作普通文本
+        if (bufferRawStart === null) bufferRawStart = pos
         buffer += token.raw
         pos += token.len
         logicalOffset += token.raw.length
@@ -369,6 +397,7 @@ export function inlineParse(input: string): {
     }
 
     // 普通字符
+    if (bufferRawStart === null) bufferRawStart = pos
     buffer += input[pos]
     pos++
     logicalOffset++
@@ -424,19 +453,17 @@ export function parseLine(line: RawLine): BlockModel {
     } as CodeBlock
   }
 
-  // 如果是块级数学公式（由 tokenize 阶段合并的多行 token）
-  if (raw.startsWith('$$') && raw.endsWith('$$') && raw.length > 4) {
-    const mathLines = raw.split('\n')
-    if (mathLines.length >= 2 && mathLines[0].trim() === '$$' && mathLines[mathLines.length - 1].trim() === '$$') {
-      const tex = mathLines.slice(1, -1).join('\n')
-      return {
-        id: line.id,
-        type: 'math-block',
-        tex,
-        texLineCount: Math.max(0, mathLines.length - 2),
-        inline: []
-      } as MathBlock
-    }
+  // 如果是块级数学公式（由 tokenize 阶段合并的多行 token，或整行 $$...$$）
+  const mathBlockMatch = parseMathBlockRaw(raw)
+  if (mathBlockMatch) {
+    return {
+      id: line.id,
+      type: 'math-block',
+      tex: mathBlockMatch.tex,
+      texLineCount: mathBlockMatch.texLineCount,
+      singleLine: mathBlockMatch.singleLine,
+      inline: []
+    } as MathBlock
   }
 
   // 如果是表格（由 tokenize 阶段合并的多行 token）

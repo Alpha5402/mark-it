@@ -7,6 +7,16 @@
 
 该项目使用 `pnpm workspace` 管理多包，并通过 `turbo` 统一编排开发与构建流程。
 
+## 快速开始
+
+```bash
+pnpm install
+pnpm --dir packages/core test
+pnpm --dir packages/core build
+pnpm --filter @mark-it/desktop build
+pnpm --filter @mark-it/desktop app:dist
+```
+
 ## 项目特性
 
 - Monorepo 架构，便于核心包与示例应用协同开发

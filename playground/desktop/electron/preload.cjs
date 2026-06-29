@@ -3,6 +3,10 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('markItWorkspace', {
   openFolder: () => ipcRenderer.invoke('workspace:open-folder'),
   newFolder: () => ipcRenderer.invoke('workspace:new-folder'),
+  restoreLastFolder: () => ipcRenderer.invoke('workspace:restore-last-folder'),
+  saveSession: (payload) => ipcRenderer.invoke('workspace:save-session', payload),
+  restoreSession: () => ipcRenderer.invoke('workspace:restore-session'),
+  setDirtyState: (hasDirtyTabs) => ipcRenderer.send('workspace:dirty-state', { hasDirtyTabs }),
   openFile: () => ipcRenderer.invoke('workspace:open-file'),
   readFile: (filePath) => ipcRenderer.invoke('workspace:read-file', filePath),
   writeFile: (filePath, content) => ipcRenderer.invoke('workspace:write-file', filePath, content)

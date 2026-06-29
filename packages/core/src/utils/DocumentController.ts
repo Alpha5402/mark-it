@@ -25,6 +25,19 @@ function parseFencedCodeRaw(rawText: string): { language: string; code: string; 
   }
 }
 
+function parseMathBlockRaw(rawText: string): { tex: string; texLineCount: number; singleLine: boolean } | null {
+  const mathLines = rawText.split('\n')
+  if (mathLines.length >= 2 && mathLines[0].trim() === '$$' && mathLines[mathLines.length - 1].trim() === '$$') {
+    return {
+      tex: mathLines.slice(1, -1).join('\n'),
+      texLineCount: Math.max(0, mathLines.length - 2),
+      singleLine: false
+    }
+  }
+
+  return null
+}
+
 export class DocumentController {
   blocks = new Map<string, BlockModel>()
   
@@ -109,6 +122,9 @@ export class DocumentController {
       return [headerRow, separatorRow, ...dataRows].join('\n')
     } else if (block.type === 'math-block') {
       const mb = block as MathBlock
+      if (mb.singleLine) {
+        return '$$' + mb.tex + '$$'
+      }
       const texLineCount = mb.texLineCount ?? (mb.tex === '' ? 1 : mb.tex.split('\n').length)
       return texLineCount === 0 ? '$$\n$$' : '$$\n' + mb.tex + '\n$$'
     }
@@ -222,23 +238,24 @@ export class DocumentController {
     // 数学公式块特殊处理：类似代码块
     if (block.type === 'math-block') {
       // 检查编辑后是否仍然是合法的 $$...$$ 块
-      const mathLines = newRawText.split('\n')
-      const isValidMath = mathLines.length >= 2 &&
-        mathLines[0].trim() === '$$' &&
-        mathLines[mathLines.length - 1].trim() === '$$'
+      const mathBlockMatch = parseMathBlockRaw(newRawText)
 
-      if (isValidMath) {
+      if (mathBlockMatch) {
         // 仍然是合法的数学公式块，更新内容
-        const tex = mathLines.slice(1, -1).join('\n')
         const newBlock: MathBlock = {
           id: block.id,
           type: 'math-block',
-          tex,
-          texLineCount: Math.max(0, mathLines.length - 2),
+          tex: mathBlockMatch.tex,
+          texLineCount: mathBlockMatch.texLineCount,
+          singleLine: mathBlockMatch.singleLine,
           inline: []
         }
         this.blocks.set(blockId, newBlock)
-        if (newBlock.tex !== (block as MathBlock).tex) {
+        if (
+          newBlock.tex !== (block as MathBlock).tex ||
+          newBlock.texLineCount !== (block as MathBlock).texLineCount ||
+          newBlock.singleLine !== (block as MathBlock).singleLine
+        ) {
           return { kind: 'block-transform', from: block, to: newBlock }
         }
         return { kind: 'inline-update', block: newBlock }

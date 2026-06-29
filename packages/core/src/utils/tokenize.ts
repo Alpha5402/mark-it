@@ -78,6 +78,9 @@ export function initialTokenize(content: string): RawLine[] {
         result.push(tokenizeByLine(raws[i]))
         i++
       }
+    } else if (raws[i].startsWith('$$') && raws[i].endsWith('$$') && raws[i].length > 4) {
+      result.push(tokenizeByLine(raws[i]))
+      i++
     } else if (raws[i].trim() === '$$') {
       // 检测到块级数学公式 $$...$$
       const mathLines: string[] = []

@@ -19,10 +19,27 @@ type MarkdownFileResult = {
   content: string;
 };
 
+type PersistedTabSession = {
+  id: string;
+  path: string | null;
+  name: string;
+  content: string;
+  isDirty: boolean;
+};
+
+type PersistedSessionState = {
+  tabs: PersistedTabSession[];
+  activeTabId: string | null;
+};
+
 interface Window {
   markItWorkspace?: {
     openFolder: () => Promise<WorkspaceOpenResult | null>;
     newFolder: () => Promise<WorkspaceOpenResult | null>;
+    restoreLastFolder: () => Promise<WorkspaceOpenResult | null>;
+    saveSession: (payload: PersistedSessionState) => Promise<{ ok: boolean }>;
+    restoreSession: () => Promise<PersistedSessionState>;
+    setDirtyState: (hasDirtyTabs: boolean) => void;
     openFile: () => Promise<MarkdownFileResult | null>;
     readFile: (filePath: string) => Promise<MarkdownFileResult>;
     writeFile: (filePath: string, content: string) => Promise<{ ok: boolean }>;

@@ -35,6 +35,8 @@ export enum EditorActionType {
   ImageHover = 'image-hover',
   /** Cmd+点击脚注引用，跳转到脚注定义 */
   FootnoteJump = 'footnote-jump',
+  /** 点击文档末尾空白区域 */
+  BlankAreaClick = 'blank-area-click',
 
   DomMutated = 'dom-mutated',
 
@@ -397,25 +399,6 @@ export class EventController {
       return
     }
 
-    // 格式化快捷键（Ctrl/Cmd + 字母）
-    if (e.ctrlKey || e.metaKey) {
-      let format: string | null = null
-      const key = e.key.toLowerCase()
-      if (key === 'b' && !e.shiftKey) format = 'bold'
-      else if (key === 'i' && !e.shiftKey) format = 'italic'
-      else if (key === 'k' && !e.shiftKey) format = 'link'
-      else if (key === 'e' && !e.shiftKey) format = 'code'
-      else if (key === 'd' && !e.shiftKey) format = 'strikethrough'
-      else if (key === 'h' && e.shiftKey) format = 'highlight'
-
-      if (format) {
-        e.preventDefault()
-        this.stickyX = null
-        this.emit(EditorActionType.FormatToggle, e, { data: format })
-        return
-      }
-    }
-
     // Undo: Ctrl+Z / Cmd+Z
     if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
       e.preventDefault()
@@ -521,6 +504,17 @@ export class EventController {
   private onMouseDown = (e: MouseEvent) => {
     const target = e.target as HTMLElement
     if (!target) return
+
+    if (e.button === 0 && target === this.root) {
+      const blocks = Array.from(this.root.querySelectorAll<HTMLElement>('.md-line-block'))
+      const lastBlock = blocks[blocks.length - 1]
+      if (!lastBlock || e.clientY >= lastBlock.getBoundingClientRect().bottom) {
+        e.preventDefault()
+        this.stickyX = null
+        this.emit(EditorActionType.BlankAreaClick, e)
+        return
+      }
+    }
 
     // Cmd（Mac）或 Ctrl（Windows/Linux）+ 左键点击
     if ((e.metaKey || e.ctrlKey) && e.button === 0) {

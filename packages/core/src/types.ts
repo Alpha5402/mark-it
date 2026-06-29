@@ -29,6 +29,8 @@ export type TextInline = {
   text: string
   marks: number
   offset: number
+  rawStart?: number
+  rawEnd?: number
   dirty: boolean
   markers?: { prefix: string; suffix: string }  // 原始 Markdown 标记符，如 { prefix: '**', suffix: '**' }
 }
@@ -39,6 +41,8 @@ export type LinkInline = {
   href: string
   marks: number
   offset: number
+  rawStart?: number
+  rawEnd?: number
   dirty: boolean
 }
 
@@ -48,6 +52,8 @@ export type ImageInline = {
   src: string
   marks: number
   offset: number
+  rawStart?: number
+  rawEnd?: number
   dirty: boolean
 }
 
@@ -112,6 +118,8 @@ export type FootnoteRefInline = {
   id: string          // 脚注标识符，如 "1" 或 "note"
   marks: number
   offset: number
+  rawStart?: number
+  rawEnd?: number
   dirty: boolean
 }
 
@@ -121,6 +129,8 @@ export type MathInline = {
   tex: string         // LaTeX 源码
   marks: number
   offset: number
+  rawStart?: number
+  rawEnd?: number
   dirty: boolean
 }
 
@@ -130,6 +140,7 @@ export interface MathBlock extends BlockModel {
   type: 'math-block'
   tex: string         // LaTeX 源码
   texLineCount?: number // 内容行数；用于区分 "$$\n$$" 和 "$$\n\n$$"
+  singleLine?: boolean // 是否使用 "$$...$$" 单行块格式
 }
 
 export interface FootnoteDefBlock extends BlockModel {

@@ -1,4 +1,4 @@
-import { BlockModel, InlineModel, TextInline, LinkInline, BlockVisualState, DivideUnit, TableBlock } from "../types"
+import { BlockModel, InlineModel, TextInline, LinkInline, BlockVisualState, DivideUnit, TableBlock, CodeBlock } from "../types"
 import { renderBlock, renderInlineBlock } from "./render"
 
 /**
@@ -898,6 +898,20 @@ export class DOMController {
       return
     }
 
+    if (block.type === 'code-block') {
+      const rawOffset = this.computeCodeBlockClickRawOffset(block as CodeBlock)
+
+      const fragment = renderBlock(block, true)
+      const tempWrapper = document.createElement('div')
+      tempWrapper.appendChild(fragment)
+      blockEl.replaceChildren(...Array.from(tempWrapper.childNodes))
+      blockEl.classList.add('md-block-expanded')
+      this.expandedBlockId = blockId
+
+      this.setCursorByRawOffset(blockId, rawOffset)
+      return
+    }
+
     // 保存光标位置（语义偏移，排除标记符）
     const cursorInfo = this.saveCursorInBlock(blockEl)
 
@@ -936,6 +950,11 @@ export class DOMController {
         applyRange(range)
       }
     }
+  }
+
+  private computeCodeBlockClickRawOffset(codeBlock: CodeBlock): number {
+    const fence = codeBlock.fence ?? '```'
+    return fence.length + codeBlock.language.length
   }
 
   /**

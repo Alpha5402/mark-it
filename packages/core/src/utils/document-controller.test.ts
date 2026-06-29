@@ -59,6 +59,16 @@ describe('DocumentController raw round-trip', () => {
 
     expect(snapshot(doc).map(b => b.raw)).toEqual(['```\n```', '$$\n$$'])
   })
+
+  test('keeps whole-line single-line $$ spans as paragraph text', () => {
+    const doc = new DocumentController('before\n$$\\frac{a}{b}$$\nafter')
+
+    expect(snapshot(doc)).toMatchObject([
+      { type: 'paragraph', raw: 'before' },
+      { type: 'paragraph', raw: '$$\\frac{a}{b}$$' },
+      { type: 'paragraph', raw: 'after' },
+    ])
+  })
 })
 
 describe('DocumentController reconcileFromRawText', () => {
@@ -97,6 +107,16 @@ describe('DocumentController reconcileFromRawText', () => {
 
     expect(doc.reconcileFromRawText(id, '$$\nbb\ncc\n')?.kind).toBe('code-block-degrade')
     expect(snapshot(doc).map(b => b.type)).toEqual(['paragraph', 'paragraph', 'paragraph', 'blank'])
+  })
+
+  test('degrades math-block when edited into single-line $$ text', () => {
+    const doc = new DocumentController('$$\naa\n$$')
+    const id = snapshot(doc)[0].id
+
+    expect(doc.reconcileFromRawText(id, '$$\\frac{a}{b}$$')?.kind).toBe('code-block-degrade')
+    expect(snapshot(doc)).toMatchObject([
+      { type: 'paragraph', raw: '$$\\frac{a}{b}$$' },
+    ])
   })
 
   test('updates table content and degrades when separator row stops matching', () => {
