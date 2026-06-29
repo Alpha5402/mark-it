@@ -1384,6 +1384,14 @@ export class Editor {
     return true
   }
 
+  moveBlockUp(blockId: string): boolean {
+    return this.moveBlock(blockId, 'up')
+  }
+
+  moveBlockDown(blockId: string): boolean {
+    return this.moveBlock(blockId, 'down')
+  }
+
   insertTemplateBlockAfter(blockId: string, template: BlockTemplateTarget): boolean {
     const anchor = this.doc.getBlock(blockId)
     if (!anchor) return false
@@ -1631,6 +1639,26 @@ export class Editor {
 
     const targetBlock = effect.kind === 'block-transform' ? effect.to : effect.block
     this.rebuildAndFocusBlock(targetBlock.id, cursorRawOffset)
+    this.notifyContentChange()
+    return true
+  }
+
+  private moveBlock(blockId: string, direction: 'up' | 'down'): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block) return false
+
+    const targetId = direction === 'up'
+      ? this.doc.getPreviousBlockId(blockId)
+      : this.doc.getNextBlockId(blockId)
+    if (!targetId) return false
+
+    const cursorInfo = this.getCurrentCursorInfo(this.controller['captureSelection']?.() ?? null)
+    this.history.pushSnapshot(this.doc.blocks, cursorInfo)
+
+    if (!this.doc.moveBlock(blockId, direction)) return false
+
+    this.dom.fullRebuild(Array.from(this.doc.getBlocks().values()))
+    this.rebuildAndFocusBlock(blockId, this.doc.prefixOffset(blockId))
     this.notifyContentChange()
     return true
   }
