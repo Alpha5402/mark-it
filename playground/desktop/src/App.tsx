@@ -1577,15 +1577,6 @@ export default function App() {
               >
                 ×
               </button>
-              <button
-                type="button"
-                className="tab-chip-more"
-                aria-label={`关闭其他标签（保留 ${tab.name}）`}
-                title="关闭其他标签"
-                onClick={() => closeOtherTabs(tab.id)}
-              >
-                ⋯
-              </button>
             </div>
           ))}
         </div>
