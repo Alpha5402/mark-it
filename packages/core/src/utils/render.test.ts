@@ -31,6 +31,17 @@ describe('renderBlock', () => {
     expect(expanded.textContent).toBe('~~~ts\nconst x = 1\n~~~')
   })
 
+  test('renders empty code-block expanded without an extra blank code line', () => {
+    const block = parse('```\n```')
+
+    const collapsed = render(block)
+    const expanded = render(block, true)
+
+    expect(collapsed.querySelector('[data-raw-placeholder="code-empty"]')).toBeNull()
+    expect(collapsed.textContent).toBe('')
+    expect(expanded.textContent).toBe('```\n```')
+  })
+
   test('renders math-block collapsed as display math and expanded as markdown source', () => {
     const block = parse('$$\nx+1\n$$')
 

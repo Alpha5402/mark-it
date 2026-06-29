@@ -20,7 +20,7 @@ describe('initialTokenize', () => {
     expect(tokens.map(t => t.raw)).toEqual(['```ts', 'const x = 1'])
   })
 
-  test('merges math blocks only when $$ is alone on opening and closing lines', () => {
+  test('merges math blocks with multiline fences or whole-line single-line fences', () => {
     expect(initialTokenize('x\n$$\na+b\n$$\ny').map(t => t.raw)).toEqual([
       'x',
       '$$\na+b\n$$',
@@ -84,9 +84,11 @@ describe('parseLine', () => {
   test('parses math block content and distinguishes empty from blank-line content', () => {
     const empty = parseLine(tokenizeByLine('$$\n$$')) as any
     const blankLine = parseLine(tokenizeByLine('$$\n\n$$')) as any
+    const singleLine = parseLine(tokenizeByLine('$$\\frac{a}{b}$$')) as any
 
     expect(empty).toMatchObject({ type: 'math-block', tex: '', texLineCount: 0 })
     expect(blankLine).toMatchObject({ type: 'math-block', tex: '', texLineCount: 1 })
+    expect(singleLine.type).toBe('paragraph')
   })
 
   test('parses table headers, alignments, and rows', () => {

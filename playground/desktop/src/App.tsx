@@ -4,9 +4,17 @@ import logoUrl from './logo.svg';
 
 type Mode = 'edit' | 'read';
 type FileNode = WorkspaceTreeNode;
-type ActiveDocument = {
+type FormatShortcutAction = 'bold' | 'italic' | 'strikethrough' | 'highlight' | 'code' | 'link';
+type FormatOrbState = 'compact' | 'expanded';
+type FormatShortcutStatus = 'active' | 'inactive' | 'mixed';
+type FormatShortcutState = Record<FormatShortcutAction, FormatShortcutStatus>;
+type TabSession = {
+  id: string;
   path: string | null;
   name: string;
+  content: string;
+  savedAtLabel: string;
+  isDirty: boolean;
 };
 
 const minSidebarWidth = 216;
@@ -15,6 +23,14 @@ const collapseThreshold = 176;
 const collapsedSidebarWidth = 52;
 const autoSaveDelay = 900;
 const draftStorageKey = 'mark-it-desktop:draft';
+const inactiveFormatShortcutState: FormatShortcutState = {
+  bold: 'inactive',
+  italic: 'inactive',
+  strikethrough: 'inactive',
+  highlight: 'inactive',
+  code: 'inactive',
+  link: 'inactive'
+};
 
 function getStats(markdown: string) {
   const compact = markdown.replace(/\s/g, '');
@@ -36,6 +52,54 @@ function formatSaveTime(date: Date) {
 function isDirectory(node: FileNode) {
   return node.type === 'directory';
 }
+
+function getFormatShortcutAction(event: KeyboardEvent): FormatShortcutAction | null {
+  const key = event.key.toLowerCase();
+  if (key === 'b' && !event.shiftKey) return 'bold';
+  if (key === 'i' && !event.shiftKey) return 'italic';
+  if (key === 'd' && !event.shiftKey) return 'strikethrough';
+  if (key === 'h' && event.shiftKey) return 'highlight';
+  if (key === 'e' && !event.shiftKey) return 'code';
+  if (key === 'k' && !event.shiftKey) return 'link';
+  return null;
+}
+
+const formatShortcutItems: Array<{
+  action: FormatShortcutAction;
+  label: string;
+  icon: React.ReactNode;
+}> = [
+  {
+    action: 'bold',
+    label: 'B',
+    icon: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h8a4 4 0 0 1 0 8H6z"/><path d="M6 12h9a4 4 0 0 1 0 8H6z"/></svg>
+  },
+  {
+    action: 'italic',
+    label: 'I',
+    icon: <svg viewBox="0 0 24 24" aria-hidden="true"><line x1="19" y1="4" x2="10" y2="4"/><line x1="14" y1="20" x2="5" y2="20"/><line x1="15" y1="4" x2="9" y2="20"/></svg>
+  },
+  {
+    action: 'strikethrough',
+    label: 'D',
+    icon: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 4H9a3 3 0 0 0 0 6h6"/><path d="M8 20h7a3 3 0 0 0 0-6H4"/><line x1="4" y1="12" x2="20" y2="12"/></svg>
+  },
+  {
+    action: 'highlight',
+    label: '⇧H',
+    icon: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+  },
+  {
+    action: 'code',
+    label: 'E',
+    icon: <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+  },
+  {
+    action: 'link',
+    label: 'K',
+    icon: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+  }
+];
 
 function FolderIcon() {
   return (
@@ -114,11 +178,9 @@ function SettingsIcon() {
 
 export default function App() {
   const [mode, setMode] = useState<Mode>('edit');
-  const [markdown, setMarkdown] = useState('');
-  const [documentTitle, setDocumentTitle] = useState('未打开文档');
-  const [activeDocument, setActiveDocument] = useState<ActiveDocument | null>(null);
+  const [tabs, setTabs] = useState<TabSession[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
-  const [savedAt, setSavedAt] = useState<string>('等待打开文档');
   const [workspaceName, setWorkspaceName] = useState('');
   const [workspaceTree, setWorkspaceTree] = useState<FileNode | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
@@ -126,13 +188,24 @@ export default function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [platform, setPlatform] = useState('darwin');
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [hasFormatSelection, setHasFormatSelection] = useState(false);
+  const [isShortcutHintExpanded, setIsShortcutHintExpanded] = useState(false);
+  const [formatShortcutState, setFormatShortcutState] = useState<FormatShortcutState>(inactiveFormatShortcutState);
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<Editor | null>(null);
   const rendererRef = useRef<Renderer | null>(null);
-  const latestMarkdownRef = useRef(markdown);
-  const hasOpenDocument = Boolean(activeDocument);
-  const stats = useMemo(() => getStats(markdown), [markdown]);
+  const latestMarkdownRef = useRef('');
+  const hasRestoredSessionRef = useRef(false);
+  const isCommandKeyDownRef = useRef(false);
+  const refreshFormatSelectionRef = useRef<() => void>(() => undefined);
+  const activeTab = useMemo(
+    () => tabs.find((tab) => tab.id === activeTabId) ?? null,
+    [activeTabId, tabs]
+  );
+  const hasOpenDocument = Boolean(activeTab);
+  const stats = useMemo(() => getStats(activeTab?.content ?? ''), [activeTab?.content]);
+  const formatOrbState: FormatOrbState = isShortcutHintExpanded ? 'expanded' : 'compact';
   const shellStyle = {
     '--sidebar-width': `${sidebarWidth}px`,
     '--sidebar-track': isSidebarCollapsed ? `${collapsedSidebarWidth}px` : `${sidebarWidth}px`
@@ -140,8 +213,27 @@ export default function App() {
   const showAppChrome = Boolean(workspaceTree || hasOpenDocument);
 
   useEffect(() => {
-    latestMarkdownRef.current = markdown;
-  }, [markdown]);
+    const navWithOverlay = navigator as Navigator & {
+      windowControlsOverlay?: {
+        visible: boolean;
+        getTitlebarAreaRect: () => DOMRect;
+        addEventListener: (type: 'geometrychange', listener: () => void) => void;
+        removeEventListener: (type: 'geometrychange', listener: () => void) => void;
+      };
+    };
+    const overlay = navWithOverlay.windowControlsOverlay;
+    if (!overlay || !overlay.visible) return;
+
+    const applyTitlebarMetrics = () => {
+      const rect = overlay.getTitlebarAreaRect();
+      document.documentElement.style.setProperty('--titlebar-content-x', `${rect.x}px`);
+      document.documentElement.style.setProperty('--titlebar-content-width', `${rect.width}px`);
+    };
+
+    applyTitlebarMetrics();
+    overlay.addEventListener('geometrychange', applyTitlebarMetrics);
+    return () => overlay.removeEventListener('geometrychange', applyTitlebarMetrics);
+  }, []);
 
   useEffect(() => {
     if (!window.markItWindow) return;
@@ -158,31 +250,208 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!hasOpenDocument) return;
+    const updateFormatSelection = () => {
+      const selection = window.getSelection();
+      const anchorNode = selection?.anchorNode ?? null;
+      const focusNode = selection?.focusNode ?? null;
+      const selectedText = selection?.toString().trim() ?? '';
+      const nextHasSelection = Boolean(
+        mode === 'edit' &&
+        activeTabId &&
+        containerRef.current &&
+        selection &&
+        !selection.isCollapsed &&
+        selectedText &&
+        anchorNode &&
+        focusNode &&
+        containerRef.current.contains(anchorNode) &&
+        containerRef.current.contains(focusNode)
+      );
 
+      setHasFormatSelection(nextHasSelection);
+      setFormatShortcutState(
+        nextHasSelection
+          ? editorRef.current?.getSelectionInlineFormatState() ?? inactiveFormatShortcutState
+          : inactiveFormatShortcutState
+      );
+    };
+    refreshFormatSelectionRef.current = updateFormatSelection;
+
+    const updateAfterInteraction = () => {
+      window.requestAnimationFrame(updateFormatSelection);
+    };
+    const hideBeforeInteraction = () => {
+      setHasFormatSelection(false);
+      setFormatShortcutState(inactiveFormatShortcutState);
+      setIsShortcutHintExpanded(false);
+    };
+
+    document.addEventListener('mousedown', hideBeforeInteraction);
+    window.addEventListener('mouseup', updateAfterInteraction);
+    window.addEventListener('keyup', updateAfterInteraction);
+
+    return () => {
+      document.removeEventListener('mousedown', hideBeforeInteraction);
+      window.removeEventListener('mouseup', updateAfterInteraction);
+      window.removeEventListener('keyup', updateAfterInteraction);
+      refreshFormatSelectionRef.current = () => undefined;
+    };
+  }, [activeTabId, mode]);
+
+  useEffect(() => {
+    const applyShortcutAction = (action: FormatShortcutAction) => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      if (action === 'bold') editor.toggleBold();
+      else if (action === 'italic') editor.toggleItalic();
+      else if (action === 'strikethrough') editor.toggleStrikethrough();
+      else if (action === 'highlight') editor.toggleHighlight();
+      else if (action === 'code') editor.toggleCode();
+      else if (action === 'link') editor.insertLink();
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      const action = getFormatShortcutAction(event);
+      const commandPressed = event.metaKey || event.ctrlKey;
+
+      if (event.key === 'Meta' || event.key === 'Control') {
+        isCommandKeyDownRef.current = true;
+        if (hasFormatSelection) setIsShortcutHintExpanded(true);
+        return;
+      }
+
+      if (commandPressed) {
+        isCommandKeyDownRef.current = true;
+        if (hasFormatSelection) setIsShortcutHintExpanded(true);
+      }
+
+      if (!hasFormatSelection || !commandPressed) {
+        return;
+      }
+
+      if (!action) return;
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (formatShortcutState[action] === 'mixed') return;
+      applyShortcutAction(action);
+      setIsShortcutHintExpanded(true);
+      window.requestAnimationFrame(() => refreshFormatSelectionRef.current());
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key === 'Meta' || event.key === 'Control') {
+        isCommandKeyDownRef.current = false;
+        setIsShortcutHintExpanded(false);
+      }
+    };
+    const onBlur = () => {
+      isCommandKeyDownRef.current = false;
+      setIsShortcutHintExpanded(false);
+      setFormatShortcutState(inactiveFormatShortcutState);
+    };
+
+    window.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('keyup', onKeyUp, true);
+    window.addEventListener('blur', onBlur);
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('keyup', onKeyUp, true);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, [formatShortcutState, hasFormatSelection]);
+
+  useEffect(() => {
+    if (!window.markItWorkspace) return;
+
+    let isMounted = true;
+    Promise.all([
+      window.markItWorkspace.restoreLastFolder(),
+      window.markItWorkspace.restoreSession()
+    ]).then(([workspace, session]) => {
+      if (!isMounted) return;
+      if (workspace) applyWorkspace(workspace);
+
+      if (!hasRestoredSessionRef.current && session?.tabs?.length) {
+        const restoredTabs: TabSession[] = session.tabs.map((tab) => ({
+          id: tab.id,
+          path: tab.path,
+          name: tab.name,
+          content: tab.content,
+          isDirty: tab.isDirty,
+          savedAtLabel: tab.isDirty ? '已恢复未保存内容' : '已恢复'
+        }));
+        hasRestoredSessionRef.current = true;
+        setTabs(restoredTabs);
+        setActiveTabId(session.activeTabId ?? restoredTabs[0]?.id ?? null);
+        setMode('edit');
+        setRevision((current) => current + 1);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeTab) return;
+    latestMarkdownRef.current = activeTab.content;
+  }, [activeTab?.content]);
+
+  useEffect(() => {
+    if (!activeTab) return;
+
+    const { id: tabId, path: tabPath, name: tabName } = activeTab;
     const timer = window.setTimeout(async () => {
       const savedAtText = formatSaveTime(new Date());
       const content = latestMarkdownRef.current;
 
-      if (activeDocument?.path && window.markItWorkspace) {
-        await window.markItWorkspace.writeFile(activeDocument.path, content);
+      if (tabPath && window.markItWorkspace) {
+        await window.markItWorkspace.writeFile(tabPath, content);
       } else {
         localStorage.setItem(draftStorageKey, JSON.stringify({
-          documentTitle,
+          documentTitle: tabName.replace(/\.md$/i, '') || tabName,
           markdown: content,
           savedAt: savedAtText
         }));
       }
 
-      setSavedAt(`最近一次保存于 ${savedAtText}`);
+      setTabs((current) => current.map((tab) => (
+        tab.id === tabId
+          ? { ...tab, savedAtLabel: `最近一次保存于 ${savedAtText}`, isDirty: false }
+          : tab
+      )));
     }, autoSaveDelay);
 
     return () => window.clearTimeout(timer);
-  }, [activeDocument?.path, documentTitle, hasOpenDocument, markdown]);
+  }, [activeTab?.content, activeTab?.id, activeTab?.name, activeTab?.path]);
+
+  useEffect(() => {
+    if (!window.markItWorkspace) return;
+    const timer = window.setTimeout(() => {
+      window.markItWorkspace?.saveSession({
+        activeTabId,
+        tabs: tabs.map((tab) => ({
+          id: tab.id,
+          path: tab.path,
+          name: tab.name,
+          content: tab.content,
+          isDirty: tab.isDirty
+        }))
+      });
+    }, 260);
+
+    return () => window.clearTimeout(timer);
+  }, [activeTabId, tabs]);
+
+  useEffect(() => {
+    window.markItWorkspace?.setDirtyState(tabs.some((tab) => tab.isDirty));
+  }, [tabs]);
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || !hasOpenDocument) return;
+    if (!container || !activeTab) return;
 
     container.innerHTML = '';
     editorRef.current?.destroy();
@@ -191,15 +460,27 @@ export default function App() {
     rendererRef.current = null;
 
     if (mode === 'edit') {
-      const editor = new Editor(container, documentTitle, markdown);
+      const editor = new Editor(container, activeTab.name.replace(/\.md$/i, '') || activeTab.name, activeTab.content);
       editor.onContentChange((nextMarkdown: string) => {
         latestMarkdownRef.current = nextMarkdown;
-        setMarkdown(nextMarkdown);
-        setSavedAt('正在自动保存...');
+        setTabs((current) => {
+          let didChange = false;
+          const nextTabs = current.map((tab) => {
+            if (tab.id !== activeTab.id) return tab;
+            if (tab.content === nextMarkdown) return tab;
+            didChange = true;
+            return { ...tab, content: nextMarkdown, savedAtLabel: '正在自动保存...', isDirty: true };
+          });
+          return didChange ? nextTabs : current;
+        });
       });
       editorRef.current = editor;
     } else {
-      rendererRef.current = new Renderer(container, documentTitle, markdown);
+      rendererRef.current = new Renderer(
+        container,
+        activeTab.name.replace(/\.md$/i, '') || activeTab.name,
+        activeTab.content
+      );
     }
 
     return () => {
@@ -208,15 +489,15 @@ export default function App() {
       editorRef.current = null;
       rendererRef.current = null;
     };
-  }, [documentTitle, hasOpenDocument, mode, revision]);
+  }, [activeTabId, mode, revision]);
 
-  const applyWorkspace = (workspace: WorkspaceOpenResult | null) => {
+  function applyWorkspace(workspace: WorkspaceOpenResult | null) {
     if (!workspace) return;
     setWorkspaceName(workspace.rootName);
     setWorkspaceTree(workspace.tree);
     setExpandedPaths(new Set([workspace.rootPath]));
     setIsSidebarCollapsed(false);
-  };
+  }
 
   const openWorkspace = async () => {
     if (!window.markItWorkspace) return;
@@ -228,20 +509,112 @@ export default function App() {
     applyWorkspace(await window.markItWorkspace.newFolder());
   };
 
-  const loadMarkdownFile = (file: MarkdownFileResult) => {
-    latestMarkdownRef.current = file.content;
-    setMarkdown(file.content);
-    setDocumentTitle(file.name.replace(/\.md$/i, '') || file.name);
-    setActiveDocument({ path: file.path, name: file.name });
-    setSavedAt('等待自动保存');
+  const openOrFocusFile = (file: MarkdownFileResult) => {
+    const normalizedPath = file.path || null;
+    if (normalizedPath) {
+      const existing = tabs.find((tab) => tab.path === normalizedPath);
+      if (existing) {
+        latestMarkdownRef.current = existing.content;
+        setActiveTabId(existing.id);
+        setMode('edit');
+        setRevision((current) => current + 1);
+        return;
+      }
+    }
+
+    const nextTab: TabSession = {
+      id: normalizedPath ? `path:${normalizedPath}` : `local:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      path: normalizedPath,
+      name: file.name,
+      content: file.content,
+      savedAtLabel: '等待自动保存',
+      isDirty: false
+    };
+
+    latestMarkdownRef.current = nextTab.content;
+    setTabs((current) => [...current, nextTab]);
+    setActiveTabId(nextTab.id);
     setMode('edit');
     setRevision((current) => current + 1);
   };
 
+  const closeTab = (tabId: string) => {
+    const target = tabs.find((tab) => tab.id === tabId);
+    if (!target) return;
+    if (target.isDirty) {
+      const shouldClose = window.confirm(`“${target.name}” 有未保存内容，确定关闭该标签页吗？`);
+      if (!shouldClose) return;
+    }
+
+    setTabs((current) => {
+      const index = current.findIndex((tab) => tab.id === tabId);
+      if (index < 0) return current;
+
+      const nextTabs = current.filter((tab) => tab.id !== tabId);
+      if (activeTabId === tabId) {
+        const fallback = nextTabs[index] ?? nextTabs[index - 1] ?? null;
+        setActiveTabId(fallback?.id ?? null);
+        latestMarkdownRef.current = fallback?.content ?? '';
+        setRevision((currentRevision) => currentRevision + 1);
+      }
+      return nextTabs;
+    });
+  };
+
+  const closeOtherTabs = (tabId: string) => {
+    const target = tabs.find((tab) => tab.id === tabId);
+    if (!target) return;
+
+    const dirtyCount = tabs.filter((tab) => tab.id !== tabId && tab.isDirty).length;
+    if (dirtyCount > 0) {
+      const shouldClose = window.confirm(`其他标签中有 ${dirtyCount} 个未保存文档，确定关闭其他标签吗？`);
+      if (!shouldClose) return;
+    }
+
+    setTabs([target]);
+    setActiveTabId(target.id);
+    latestMarkdownRef.current = target.content;
+    setRevision((current) => current + 1);
+  };
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const commandPressed = event.metaKey || event.ctrlKey;
+      if (!commandPressed) return;
+
+      if (event.key.toLowerCase() === 'w') {
+        if (!activeTabId) return;
+        event.preventDefault();
+        closeTab(activeTabId);
+        return;
+      }
+
+      if (event.key === 'Tab') {
+        if (tabs.length <= 1 || !activeTabId) return;
+        event.preventDefault();
+
+        const currentIndex = tabs.findIndex((tab) => tab.id === activeTabId);
+        if (currentIndex < 0) return;
+        const nextIndex = event.shiftKey
+          ? (currentIndex - 1 + tabs.length) % tabs.length
+          : (currentIndex + 1) % tabs.length;
+        const nextTab = tabs[nextIndex];
+        if (!nextTab) return;
+
+        latestMarkdownRef.current = nextTab.content;
+        setActiveTabId(nextTab.id);
+        setRevision((current) => current + 1);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeTabId, tabs]);
+
   const openMarkdownFile = async () => {
     if (window.markItWorkspace) {
       const file = await window.markItWorkspace.openFile();
-      if (file) loadMarkdownFile(file);
+      if (file) openOrFocusFile(file);
       return;
     }
 
@@ -255,7 +628,7 @@ export default function App() {
 
     const reader = new FileReader();
     reader.onload = () => {
-      loadMarkdownFile({
+      openOrFocusFile({
         path: '',
         name: file.name,
         content: String(reader.result ?? '')
@@ -266,7 +639,7 @@ export default function App() {
 
   const selectTreeFile = async (node: FileNode) => {
     if (!window.markItWorkspace || node.type !== 'file') return;
-    loadMarkdownFile(await window.markItWorkspace.readFile(node.path));
+    openOrFocusFile(await window.markItWorkspace.readFile(node.path));
   };
 
   const toggleDirectory = (path: string) => {
@@ -323,7 +696,7 @@ export default function App() {
 
   const renderTreeNode = (node: FileNode, depth = 0) => {
     const expanded = expandedPaths.has(node.path);
-    const active = activeDocument?.path === node.path;
+    const active = activeTab?.path === node.path;
 
     if (isDirectory(node)) {
       return (
@@ -388,65 +761,45 @@ export default function App() {
       className={`desktop-shell platform-${platform} ${isFullScreen ? 'is-fullscreen' : ''} ${isSidebarCollapsed ? 'sidebar-is-collapsed' : ''}`}
       style={shellStyle}
     >
-      <header className="topbar">
-        <div className="mode-switch" role="group" aria-label="切换模式">
-          <button
-            type="button"
-            className={mode === 'edit' ? 'active' : ''}
-            disabled={!hasOpenDocument}
-            onClick={() => setMode('edit')}
-          >
-            编辑
-          </button>
-          <button
-            type="button"
-            className={mode === 'read' ? 'active' : ''}
-            disabled={!hasOpenDocument}
-            onClick={() => setMode('read')}
-          >
-            阅读
-          </button>
-        </div>
-        {mode === 'edit' && hasOpenDocument && (
-          <div className="format-toolbar" role="toolbar" aria-label="格式化工具">
-            <span className="format-toolbar-label">样式</span>
-            <button type="button" title="加粗 (⌘B)" onClick={() => editorRef.current?.toggleBold()}>
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/><path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/></svg>
-            </button>
-            <button type="button" title="斜体 (⌘I)" onClick={() => editorRef.current?.toggleItalic()}>
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="4" x2="10" y2="4"/><line x1="14" y1="20" x2="5" y2="20"/><line x1="15" y1="4" x2="9" y2="20"/></svg>
-            </button>
-            <button type="button" title="删除线 (⌘D)" onClick={() => editorRef.current?.toggleStrikethrough()}>
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4H9a3 3 0 0 0 0 6h6"/><path d="M8 20h7a3 3 0 0 0 0-6H4"/><line x1="4" y1="12" x2="20" y2="12"/></svg>
-            </button>
-            <button type="button" title="高亮 (⌘⇧H)" onClick={() => editorRef.current?.toggleHighlight()}>
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-            </button>
-            <button type="button" title="代码 (⌘E)" onClick={() => editorRef.current?.toggleCode()}>
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-            </button>
-            <button type="button" title="链接 (⌘K)" onClick={() => editorRef.current?.insertLink()}>
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-            </button>
-          </div>
-        )}
-        <div className="document-heading" title={documentTitle}>
-          <span>{documentTitle}</span>
-          <small>{savedAt}</small>
-        </div>
-        <div className="topbar-stats" aria-label="文档统计">
-          <div>
-            <span>{stats.words}</span>
-            <small>字符</small>
-          </div>
-          <div>
-            <span>{stats.lines}</span>
-            <small>行</small>
-          </div>
-          <div>
-            <span>{stats.blocks}</span>
-            <small>段落</small>
-          </div>
+      <header className="tabs-top" role="tablist" aria-label="打开的文档标签">
+        <div className="tabs-strip">
+          {tabs.map((tab) => (
+            <div
+              key={tab.id}
+              role="tab"
+              aria-selected={tab.id === activeTabId}
+              className={`tab-chip ${tab.id === activeTabId ? 'active' : ''}`}
+            >
+              <button
+                type="button"
+                className="tab-chip-main"
+                onClick={() => {
+                  latestMarkdownRef.current = tab.content;
+                  setActiveTabId(tab.id);
+                  setRevision((current) => current + 1);
+                }}
+              >
+                {tab.isDirty ? `${tab.name} *` : tab.name}
+              </button>
+              <button
+                type="button"
+                className="tab-chip-close"
+                aria-label={`关闭 ${tab.name}`}
+                onClick={() => closeTab(tab.id)}
+              >
+                ×
+              </button>
+              <button
+                type="button"
+                className="tab-chip-more"
+                aria-label={`关闭其他标签（保留 ${tab.name}）`}
+                title="关闭其他标签"
+                onClick={() => closeOtherTabs(tab.id)}
+              >
+                ⋯
+              </button>
+            </div>
+          ))}
         </div>
       </header>
 
@@ -507,11 +860,93 @@ export default function App() {
       />
 
       <section className="workspace">
+        <header className="topbar">
+          <div className="mode-switch" role="group" aria-label="切换模式">
+            <button
+              type="button"
+              className={mode === 'edit' ? 'active' : ''}
+              disabled={!hasOpenDocument}
+              onClick={() => setMode('edit')}
+            >
+              编辑
+            </button>
+            <button
+              type="button"
+              className={mode === 'read' ? 'active' : ''}
+              disabled={!hasOpenDocument}
+              onClick={() => setMode('read')}
+            >
+              阅读
+            </button>
+          </div>
+          <div className="document-heading" title={activeTab?.name ?? '未打开文档'}>
+            <span>{activeTab ? `${activeTab.name.replace(/\.md$/i, '')}${activeTab.isDirty ? ' *' : ''}` : '未打开文档'}</span>
+            <small>{activeTab?.savedAtLabel ?? '等待打开文档'}</small>
+          </div>
+        </header>
         {hasOpenDocument ? (
           <div className="paper-stage">
             <div className="paper" ref={containerRef} />
           </div>
-        ) : null}
+        ) : <div className="workspace-empty">打开文件后，可在这里通过标签页切换多个文档。</div>}
+        {hasOpenDocument && (
+          <div className="stats-orb" aria-label="文档统计">
+            <div>
+              <span>{stats.lines}</span>
+              <small>行</small>
+            </div>
+            <div>
+              <span>{stats.blocks}</span>
+              <small>段</small>
+            </div>
+            <div>
+              <span>{stats.words}</span>
+              <small>字</small>
+            </div>
+          </div>
+        )}
+        {hasFormatSelection && (
+          <div
+            className={`format-orb ${formatOrbState}`}
+            aria-label="快捷样式编辑提示"
+          >
+            {formatOrbState === 'compact' ? (
+              <div className="format-hint-compact">
+                <span>快捷样式编辑</span>
+                <kbd>{platform === 'darwin' ? '⌘' : 'Ctrl'}</kbd>
+              </div>
+            ) : (
+              <div className="format-shortcuts">
+                {formatShortcutItems.map((item, index) => {
+                  const status = formatShortcutState[item.action];
+                  const previousStatus = formatShortcutItems[index - 1]
+                    ? formatShortcutState[formatShortcutItems[index - 1].action]
+                    : 'inactive';
+                  const nextStatus = formatShortcutItems[index + 1]
+                    ? formatShortcutState[formatShortcutItems[index + 1].action]
+                    : 'inactive';
+                  const classNames = [
+                    status === 'active' ? 'active' : '',
+                    status === 'mixed' ? 'mixed' : '',
+                    status === 'active' && previousStatus === 'active' ? 'connected-left' : '',
+                    status === 'active' && nextStatus === 'active' ? 'connected-right' : ''
+                  ].filter(Boolean).join(' ');
+
+                  return (
+                    <div
+                      key={item.action}
+                      className={classNames}
+                      aria-disabled={status === 'mixed'}
+                    >
+                      {item.icon}
+                      <small>{item.label}</small>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </section>
     </main>
   );

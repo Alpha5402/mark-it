@@ -282,7 +282,9 @@ export const renderBlock = (block: BlockModel, expanded: boolean = false): Docum
         appendHighlightedCodeLines(content, codeBlock.code, codeBlock.language, codeLineCount, true)
 
         // 换行 + 结尾的 ```
-        content.appendChild(document.createTextNode('\n'))
+        if (codeLineCount > 0) {
+          content.appendChild(document.createTextNode('\n'))
+        }
         const closeFence = document.createElement('span')
         closeFence.className = 'md-code-fence-marker md-code-fence-close'
         closeFence.textContent = fence
@@ -314,7 +316,9 @@ export const renderBlock = (block: BlockModel, expanded: boolean = false): Docum
         const content = document.createElement('div')
         content.className = 'md-inline-content md-math-block-content'
         const texLineCount = mathBlock.texLineCount ?? (mathBlock.tex === '' ? 1 : mathBlock.tex.split('\n').length)
-        const fullText = texLineCount === 0 ? '$$\n$$' : '$$\n' + mathBlock.tex + '\n$$'
+        const fullText = mathBlock.singleLine ? '$$' + mathBlock.tex + '$$'
+          : texLineCount === 0 ? '$$\n$$'
+            : '$$\n' + mathBlock.tex + '\n$$'
         content.appendChild(document.createTextNode(fullText))
         wrapper.appendChild(content)
       } else {

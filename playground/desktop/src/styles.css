@@ -30,7 +30,7 @@ button {
 .desktop-shell {
   display: grid;
   grid-template-columns: var(--sidebar-track, 292px) minmax(560px, 1fr);
-  grid-template-rows: 58px minmax(0, 1fr);
+  grid-template-rows: 46px minmax(0, 1fr);
   position: relative;
   height: 100vh;
   min-width: 920px;
@@ -295,7 +295,7 @@ button {
 .sidebar-resizer {
   position: absolute;
   z-index: 20;
-  top: 58px;
+  top: 46px;
   bottom: 0;
   left: calc(var(--sidebar-track, 292px) - 3px);
   width: 6px;
@@ -330,22 +330,102 @@ button {
 
 .workspace {
   grid-row: 2;
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
 }
 
-.topbar {
+.tabs-top {
   grid-column: 1 / -1;
   grid-row: 1;
+  border-bottom: 1px solid rgba(24, 33, 47, 0.11);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.tabs-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 45px;
+  padding: 7px 18px;
+  margin-left: var(--titlebar-content-x, 0px);
+  width: min(100%, var(--titlebar-content-width, 100%));
+  overflow-x: auto;
+}
+
+.tab-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 260px;
+  border: 1px solid rgba(24, 33, 47, 0.14);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.tab-chip.active {
+  border-color: rgba(15, 139, 111, 0.42);
+  background: #ffffff;
+  box-shadow: 0 3px 12px rgba(24, 33, 47, 0.1);
+}
+
+.tab-chip-main {
+  max-width: 220px;
+  padding: 6px 10px;
+  color: #233044;
+  background: transparent;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-chip-close {
+  width: 26px;
+  height: 26px;
+  margin-right: 4px;
+  border-radius: 7px;
+  color: #6b7788;
+  background: transparent;
+}
+
+.tab-chip-close:hover {
+  color: #1d4f73;
+  background: rgba(29, 79, 115, 0.12);
+}
+
+.tab-chip-more {
+  width: 24px;
+  height: 26px;
+  margin-right: 4px;
+  border-radius: 7px;
+  color: #6b7788;
+  background: transparent;
+  line-height: 1;
+}
+
+.tab-chip-more:hover {
+  color: #1d4f73;
+  background: rgba(29, 79, 115, 0.12);
+}
+
+.workspace-empty {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  color: #687386;
+  font-size: 13px;
+}
+
+.topbar {
   display: flex;
   align-items: center;
   gap: 14px;
   height: 58px;
   padding: 0 18px;
   border-bottom: 1px solid rgba(24, 33, 47, 0.11);
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.56);
 }
 
 .topbar .document-heading {
@@ -353,64 +433,159 @@ button {
   min-width: 0;
 }
 
-.format-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  height: 34px;
-  padding: 3px 4px;
-  border: 1px solid rgba(24, 33, 47, 0.08);
-  border-radius: 9px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(248, 250, 252, 0.7)),
-    #eef2f6;
-  box-shadow: 0 1px 2px rgba(24, 33, 47, 0.05);
-}
-
-.format-toolbar-label {
-  display: inline-flex;
-  align-items: center;
-  height: 24px;
-  margin-right: 3px;
-  padding: 0 8px;
-  border-right: 1px solid rgba(24, 33, 47, 0.1);
-  color: #1d4f73;
-  font-size: 12px;
-  font-weight: 780;
-  white-space: nowrap;
-}
-
-.format-toolbar button {
+.format-orb {
+  position: absolute;
+  z-index: 30;
+  bottom: 24px;
+  left: 50%;
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 28px;
-  border-radius: 6px;
-  color: #526071;
-  background: transparent;
+  align-items: center;
+  width: 176px;
+  height: 56px;
+  padding: 0 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.62), transparent 36%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.34), rgba(232, 241, 248, 0.18)),
+    rgba(232, 239, 244, 0.2);
+  box-shadow:
+    0 18px 48px rgba(24, 33, 47, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.62),
+    inset 0 -1px 0 rgba(29, 79, 115, 0.08);
+  transform: translateX(-50%);
+  backdrop-filter: blur(18px) saturate(1.8);
+  -webkit-backdrop-filter: blur(18px) saturate(1.8);
+  pointer-events: none;
   transition:
-    background 0.12s ease,
-    color 0.12s ease,
-    box-shadow 0.12s ease,
-    transform 0.12s ease;
+    width 0.2s ease,
+    padding 0.2s ease,
+    border-radius 0.2s ease;
 }
 
-.format-toolbar button:hover {
-  color: #0f8b6f;
-  background: #ffffff;
-  box-shadow: 0 2px 8px rgba(24, 33, 47, 0.12);
+.format-orb.expanded {
+  width: 286px;
+  padding: 0 13px;
+  border-radius: 28px;
+}
+
+.format-hint-compact {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #415167;
+  font-size: 14px;
+  font-weight: 760;
+  white-space: nowrap;
+  grid-area: 1 / 1;
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease,
+    visibility 0.12s ease;
+}
+
+.format-orb.expanded .format-hint-compact {
+  opacity: 0;
+  visibility: hidden;
+  transform: scale(0.96);
+}
+
+.format-hint-compact kbd {
+  color: inherit;
+  font: inherit;
+}
+
+.format-shortcuts svg {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  color: #415167;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.format-shortcuts {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 1;
+  transform: scale(1);
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
+}
+
+.format-shortcuts div {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 5px;
+  width: 36px;
+  min-height: 48px;
+  margin: 0 3.5px;
+  border-radius: 14px;
+  position: relative;
+  transition:
+    margin 0.16s ease,
+    background 0.16s ease,
+    border-radius 0.16s ease,
+    box-shadow 0.16s ease,
+    opacity 0.16s ease,
+    transform 0.16s ease;
+}
+
+.format-shortcuts div.active {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.36), rgba(205, 232, 247, 0.18)),
+    rgba(255, 255, 255, 0.16);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.5),
+    inset 0 -1px 0 rgba(29, 79, 115, 0.08),
+    0 8px 18px rgba(29, 79, 115, 0.08);
   transform: translateY(-1px);
 }
 
-.format-toolbar button:active {
-  color: #153f5f;
-  background: #dbe3ea;
-  box-shadow: inset 0 1px 2px rgba(24, 33, 47, 0.12);
-  transform: translateY(0);
+.format-shortcuts div.active.connected-left {
+  margin-left: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.format-shortcuts div.active.connected-right {
+  margin-right: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.format-shortcuts div.mixed {
+  color: #8a94a3;
+  background: rgba(116, 126, 140, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(116, 126, 140, 0.18);
+  opacity: 0.54;
+}
+
+.format-shortcuts div.mixed svg,
+.format-shortcuts div.mixed small {
+  color: #8a94a3;
+}
+
+.format-shortcuts small {
+  color: #5d6a7c;
+  font-size: 10px;
+  font-weight: 780;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .platform-darwin:not(.is-fullscreen) .topbar {
-  padding-left: 88px;
+  padding-left: 18px;
 }
 
 .platform-win32 .topbar {
@@ -468,33 +643,46 @@ button {
   font-weight: 700;
 }
 
-.topbar-stats {
-  display: flex;
-  align-items: center;
-  margin-left: auto;
-  gap: 8px;
-}
-
-.topbar-stats div {
+.stats-orb {
+  position: absolute;
+  right: 22px;
+  bottom: 22px;
+  z-index: 28;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  min-width: 58px;
-  height: 30px;
-  padding: 0 9px;
-  border: 1px solid rgba(24, 33, 47, 0.09);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
+  gap: 10px;
+  min-height: 48px;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.36);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.56), transparent 38%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.3), rgba(232, 241, 248, 0.16)),
+    rgba(232, 239, 244, 0.18);
+  box-shadow:
+    0 18px 44px rgba(24, 33, 47, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.62),
+    inset 0 -1px 0 rgba(29, 79, 115, 0.08);
+  backdrop-filter: blur(18px) saturate(1.8);
+  -webkit-backdrop-filter: blur(18px) saturate(1.8);
 }
 
-.topbar-stats span {
+.stats-orb div {
+  display: grid;
+  place-items: center;
+  min-width: 34px;
+  line-height: 1;
+}
+
+.stats-orb span {
   color: #1d4f73;
   font-size: 13px;
   font-weight: 780;
 }
 
-.topbar-stats small {
+.stats-orb small {
+  margin-top: 4px;
   color: #687386;
   font-size: 11px;
 }
