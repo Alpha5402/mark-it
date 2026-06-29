@@ -16,6 +16,24 @@ type TabSession = {
   savedAtLabel: string;
   isDirty: boolean;
 };
+type ContextMenuState =
+  | { kind: 'tree-file'; x: number; y: number; node: FileNode }
+  | { kind: 'tree-directory'; x: number; y: number; node: FileNode }
+  | { kind: 'tab'; x: number; y: number; tabId: string }
+  | { kind: 'editor-block'; x: number; y: number; blockId: string; blockType: string; raw: string }
+  | { kind: 'editor-surface'; x: number; y: number };
+type ContextMenuPayload = ContextMenuState extends infer Menu
+  ? Menu extends ContextMenuState
+    ? Omit<Menu, 'x' | 'y'>
+    : never
+  : never;
+type ContextMenuItem = {
+  label: string;
+  hint?: string;
+  disabled?: boolean;
+  danger?: boolean;
+  action?: () => void | Promise<void>;
+};
 
 const minSidebarWidth = 216;
 const maxSidebarWidth = 380;
@@ -51,6 +69,19 @@ function formatSaveTime(date: Date) {
 
 function isDirectory(node: FileNode) {
   return node.type === 'directory';
+}
+
+function blockTypeLabel(type: string) {
+  if (type === 'paragraph') return '段落';
+  if (type === 'heading') return '标题';
+  if (type === 'list-item') return '列表';
+  if (type === 'blockquote') return '引用';
+  if (type === 'code-block') return '代码块';
+  if (type === 'math-block') return '公式块';
+  if (type === 'table') return '表格';
+  if (type === 'hr') return '分割线';
+  if (type === 'blank') return '空行';
+  return 'Markdown 块';
 }
 
 function getFormatShortcutAction(event: KeyboardEvent): FormatShortcutAction | null {
@@ -191,6 +222,7 @@ export default function App() {
   const [hasFormatSelection, setHasFormatSelection] = useState(false);
   const [isShortcutHintExpanded, setIsShortcutHintExpanded] = useState(false);
   const [formatShortcutState, setFormatShortcutState] = useState<FormatShortcutState>(inactiveFormatShortcutState);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -211,6 +243,40 @@ export default function App() {
     '--sidebar-track': isSidebarCollapsed ? `${collapsedSidebarWidth}px` : `${sidebarWidth}px`
   } as React.CSSProperties;
   const showAppChrome = Boolean(workspaceTree || hasOpenDocument);
+
+  const closeContextMenu = useCallback(() => {
+    setContextMenu(null);
+  }, []);
+
+  const openContextMenu = useCallback((
+    event: React.MouseEvent,
+    nextMenu: ContextMenuPayload
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const menuWidth = 232;
+    const menuHeight = 260;
+    setContextMenu({
+      ...nextMenu,
+      x: Math.min(event.clientX, Math.max(12, window.innerWidth - menuWidth - 12)),
+      y: Math.min(event.clientY, Math.max(12, window.innerHeight - menuHeight - 12))
+    } as ContextMenuState);
+  }, []);
+
+  const copyText = useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+  }, []);
 
   useEffect(() => {
     const navWithOverlay = navigator as Navigator & {
@@ -234,6 +300,27 @@ export default function App() {
     overlay.addEventListener('geometrychange', applyTitlebarMetrics);
     return () => overlay.removeEventListener('geometrychange', applyTitlebarMetrics);
   }, []);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+
+    const close = () => closeContextMenu();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeContextMenu();
+    };
+
+    window.addEventListener('click', close);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [closeContextMenu, contextMenu]);
 
   useEffect(() => {
     if (!window.markItWindow) return;
@@ -577,6 +664,14 @@ export default function App() {
     setRevision((current) => current + 1);
   };
 
+  const activateTab = (tabId: string) => {
+    const target = tabs.find((tab) => tab.id === tabId);
+    if (!target) return;
+    latestMarkdownRef.current = target.content;
+    setActiveTabId(target.id);
+    setRevision((current) => current + 1);
+  };
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const commandPressed = event.metaKey || event.ctrlKey;
@@ -642,6 +737,56 @@ export default function App() {
     openOrFocusFile(await window.markItWorkspace.readFile(node.path));
   };
 
+  const createMarkdownFileAt = async (node: FileNode) => {
+    if (!window.markItWorkspace) return;
+    const result = await window.markItWorkspace.createMarkdownFile(node.path);
+    if (result.workspace) applyWorkspace(result.workspace);
+    if (result.file) openOrFocusFile(result.file);
+  };
+
+  const createDirectoryAt = async (node: FileNode) => {
+    if (!window.markItWorkspace) return;
+    const result = await window.markItWorkspace.createDirectory(node.path);
+    if (result.workspace) {
+      applyWorkspace(result.workspace);
+      setExpandedPaths((current) => {
+        const next = new Set(current);
+        next.add(node.path);
+        if (result.path) next.add(result.path);
+        return next;
+      });
+    }
+  };
+
+  const revealPath = async (path: string) => {
+    await window.markItWorkspace?.revealPath(path);
+  };
+
+  const openEditorContextMenu = (event: React.MouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement | null;
+    const blockEl = target?.closest('.md-line-block') as HTMLElement | null;
+    const blockId = blockEl?.dataset.blockId;
+    const surface = editorRef.current ?? rendererRef.current;
+
+    if (!blockId || !surface) {
+      openContextMenu(event, { kind: 'editor-surface' });
+      return;
+    }
+
+    const block = surface.doc.getBlock(blockId);
+    if (!block) {
+      openContextMenu(event, { kind: 'editor-surface' });
+      return;
+    }
+
+    openContextMenu(event, {
+      kind: 'editor-block',
+      blockId,
+      blockType: block.type,
+      raw: surface.doc.getRawText(blockId)
+    });
+  };
+
   const toggleDirectory = (path: string) => {
     setExpandedPaths((current) => {
       const next = new Set(current);
@@ -650,6 +795,82 @@ export default function App() {
       return next;
     });
   };
+
+  const contextMenuItems = useMemo<ContextMenuItem[]>(() => {
+    if (!contextMenu) return [];
+
+    if (contextMenu.kind === 'tree-directory') {
+      const expanded = expandedPaths.has(contextMenu.node.path);
+      return [
+        { label: contextMenu.node.name, hint: '文件夹', disabled: true },
+        { label: '新建笔记', hint: '.md', action: () => createMarkdownFileAt(contextMenu.node) },
+        { label: '新建文件夹', action: () => createDirectoryAt(contextMenu.node) },
+        {
+          label: expanded ? '收起文件夹' : '展开文件夹',
+          action: () => toggleDirectory(contextMenu.node.path)
+        },
+        { label: '复制路径', action: () => copyText(contextMenu.node.path) },
+        { label: '在 Finder 中显示', action: () => revealPath(contextMenu.node.path) }
+      ];
+    }
+
+    if (contextMenu.kind === 'tree-file') {
+      return [
+        { label: contextMenu.node.name, hint: 'Markdown', disabled: true },
+        { label: '打开', action: () => selectTreeFile(contextMenu.node) },
+        { label: '新建同级笔记', hint: '.md', action: () => createMarkdownFileAt(contextMenu.node) },
+        { label: '复制路径', action: () => copyText(contextMenu.node.path) },
+        { label: '在 Finder 中显示', action: () => revealPath(contextMenu.node.path) }
+      ];
+    }
+
+    if (contextMenu.kind === 'tab') {
+      const target = tabs.find((tab) => tab.id === contextMenu.tabId);
+      if (!target) return [];
+      return [
+        { label: target.name, hint: target.isDirty ? '未保存' : '已保存', disabled: true },
+        { label: '切换到此标签', action: () => activateTab(target.id) },
+        { label: '关闭标签', action: () => closeTab(target.id) },
+        {
+          label: '关闭其他标签',
+          disabled: tabs.length <= 1,
+          action: () => closeOtherTabs(target.id)
+        },
+        { label: '复制文件路径', disabled: !target.path, action: () => target.path && copyText(target.path) }
+      ];
+    }
+
+    if (contextMenu.kind === 'editor-block') {
+      const canEdit = Boolean(editorRef.current);
+      return [
+        { label: blockTypeLabel(contextMenu.blockType), hint: '编辑区', disabled: true },
+        { label: '复制当前块 Markdown', action: () => copyText(contextMenu.raw) },
+        { label: '复制全文 Markdown', action: () => activeTab && copyText(activeTab.content) },
+        {
+          label: '展开编辑当前块',
+          disabled: !canEdit,
+          action: () => {
+            const editor = editorRef.current;
+            const block = editor?.doc.getBlock(contextMenu.blockId);
+            if (!editor || !block) return;
+            editor.dom.forceResetExpanded();
+            editor.dom.renderBlockExpanded(block);
+            editor.dom.setCursorByRawOffset(block.id, 0);
+          }
+        },
+        {
+          label: mode === 'edit' ? '切换到阅读' : '切换到编辑',
+          action: () => setMode(mode === 'edit' ? 'read' : 'edit')
+        }
+      ];
+    }
+
+    return [
+      { label: '编辑区', hint: mode === 'edit' ? '编辑' : '阅读', disabled: true },
+      { label: '复制全文 Markdown', disabled: !activeTab, action: () => activeTab && copyText(activeTab.content) },
+      { label: mode === 'edit' ? '切换到阅读' : '切换到编辑', disabled: !activeTab, action: () => setMode(mode === 'edit' ? 'read' : 'edit') }
+    ];
+  }, [activeTab, closeContextMenu, contextMenu, copyText, expandedPaths, mode, tabs]);
 
   const startSidebarResize = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -694,6 +915,37 @@ export default function App() {
     window.addEventListener('mouseup', onMouseUp);
   }, [isSidebarCollapsed]);
 
+  const renderContextMenu = () => {
+    if (!contextMenu || contextMenuItems.length === 0) return null;
+
+    return (
+      <div
+        className="context-menu"
+        role="menu"
+        style={{ left: contextMenu.x, top: contextMenu.y }}
+        onClick={(event) => event.stopPropagation()}
+        onContextMenu={(event) => event.preventDefault()}
+      >
+        {contextMenuItems.map((item, index) => (
+          <button
+            key={`${item.label}-${index}`}
+            type="button"
+            role="menuitem"
+            className={`${item.disabled ? 'disabled' : ''} ${item.danger ? 'danger' : ''}`}
+            disabled={item.disabled}
+            onClick={async () => {
+              await item.action?.();
+              closeContextMenu();
+            }}
+          >
+            <span>{item.label}</span>
+            {item.hint && <small>{item.hint}</small>}
+          </button>
+        ))}
+      </div>
+    );
+  };
+
   const renderTreeNode = (node: FileNode, depth = 0) => {
     const expanded = expandedPaths.has(node.path);
     const active = activeTab?.path === node.path;
@@ -706,6 +958,7 @@ export default function App() {
             className="tree-row directory-row"
             style={{ paddingLeft: 12 + depth * 14 }}
             onClick={() => toggleDirectory(node.path)}
+            onContextMenu={(event) => openContextMenu(event, { kind: 'tree-directory', node })}
           >
             <span className={`tree-caret ${expanded ? 'expanded' : ''}`}>›</span>
             <span className="tree-icon"><FolderIcon /></span>
@@ -723,6 +976,7 @@ export default function App() {
         className={`tree-row file-row ${active ? 'active' : ''}`}
         style={{ paddingLeft: 34 + depth * 14 }}
         onClick={() => selectTreeFile(node)}
+        onContextMenu={(event) => openContextMenu(event, { kind: 'tree-file', node })}
       >
         <span className="tree-icon"><NoteIcon /></span>
         <span className="tree-name">{node.name}</span>
@@ -769,15 +1023,12 @@ export default function App() {
               role="tab"
               aria-selected={tab.id === activeTabId}
               className={`tab-chip ${tab.id === activeTabId ? 'active' : ''}`}
+              onContextMenu={(event) => openContextMenu(event, { kind: 'tab', tabId: tab.id })}
             >
               <button
                 type="button"
                 className="tab-chip-main"
-                onClick={() => {
-                  latestMarkdownRef.current = tab.content;
-                  setActiveTabId(tab.id);
-                  setRevision((current) => current + 1);
-                }}
+                onClick={() => activateTab(tab.id)}
               >
                 {tab.isDirty ? `${tab.name} *` : tab.name}
               </button>
@@ -886,7 +1137,11 @@ export default function App() {
         </header>
         {hasOpenDocument ? (
           <div className="paper-stage">
-            <div className="paper" ref={containerRef} />
+            <div
+              className="paper"
+              ref={containerRef}
+              onContextMenu={openEditorContextMenu}
+            />
           </div>
         ) : <div className="workspace-empty">打开文件后，可在这里通过标签页切换多个文档。</div>}
         {hasOpenDocument && (
@@ -948,6 +1203,7 @@ export default function App() {
           </div>
         )}
       </section>
+      {renderContextMenu()}
     </main>
   );
 }

@@ -75,6 +75,43 @@ function toTreeNode(entryPath) {
   return { type: 'directory', name, path: entryPath, children };
 }
 
+function getRestoredWorkspaceTree() {
+  const workspaceState = readWorkspaceState();
+  const rootPath = workspaceState?.rootPath;
+  if (!rootPath) return null;
+
+  try {
+    const stat = fs.statSync(rootPath);
+    if (!stat.isDirectory()) return null;
+    return {
+      rootPath,
+      rootName: path.basename(rootPath),
+      tree: toTreeNode(rootPath)
+    };
+  } catch {
+    return null;
+  }
+}
+
+function ensureUniquePath(directoryPath, baseName, extension = '') {
+  let candidate = path.join(directoryPath, baseName + extension);
+  let index = 2;
+  while (fs.existsSync(candidate)) {
+    candidate = path.join(directoryPath, `${baseName} ${index}${extension}`);
+    index += 1;
+  }
+  return candidate;
+}
+
+function resolveDirectoryTarget(targetPath) {
+  try {
+    const stat = fs.statSync(targetPath);
+    return stat.isDirectory() ? targetPath : path.dirname(targetPath);
+  } catch {
+    return null;
+  }
+}
+
 async function chooseWorkspace(properties) {
   const result = await dialog.showOpenDialog({
     properties,
@@ -92,21 +129,7 @@ async function chooseWorkspace(properties) {
 }
 
 function restoreLastWorkspace() {
-  const workspaceState = readWorkspaceState();
-  const rootPath = workspaceState?.rootPath;
-  if (!rootPath) return null;
-
-  try {
-    const stat = fs.statSync(rootPath);
-    if (!stat.isDirectory()) return null;
-    return {
-      rootPath,
-      rootName: path.basename(rootPath),
-      tree: toTreeNode(rootPath)
-    };
-  } catch {
-    return null;
-  }
+  return getRestoredWorkspaceTree();
 }
 
 function restoreTabSession() {
@@ -259,6 +282,40 @@ app.whenReady().then(() => {
   }));
   ipcMain.handle('workspace:write-file', (_event, filePath, content) => {
     fs.writeFileSync(filePath, content, 'utf8');
+    return { ok: true };
+  });
+  ipcMain.handle('workspace:create-markdown-file', (_event, targetPath) => {
+    const directoryPath = resolveDirectoryTarget(targetPath);
+    if (!directoryPath) return { ok: false };
+
+    const filePath = ensureUniquePath(directoryPath, 'Untitled', '.md');
+    fs.writeFileSync(filePath, '', 'utf8');
+
+    return {
+      ok: true,
+      file: {
+        path: filePath,
+        name: path.basename(filePath),
+        content: ''
+      },
+      workspace: getRestoredWorkspaceTree()
+    };
+  });
+  ipcMain.handle('workspace:create-directory', (_event, targetPath) => {
+    const directoryPath = resolveDirectoryTarget(targetPath);
+    if (!directoryPath) return { ok: false };
+
+    const folderPath = ensureUniquePath(directoryPath, 'New Folder');
+    fs.mkdirSync(folderPath);
+
+    return {
+      ok: true,
+      path: folderPath,
+      workspace: getRestoredWorkspaceTree()
+    };
+  });
+  ipcMain.handle('workspace:reveal-path', (_event, targetPath) => {
+    shell.showItemInFolder(targetPath);
     return { ok: true };
   });
   ipcMain.handle('window:get-state', (event) => {
