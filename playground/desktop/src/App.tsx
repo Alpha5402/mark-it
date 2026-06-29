@@ -20,7 +20,7 @@ type ContextMenuState =
   | { kind: 'tree-file'; x: number; y: number; node: FileNode }
   | { kind: 'tree-directory'; x: number; y: number; node: FileNode }
   | { kind: 'tab'; x: number; y: number; tabId: string }
-  | { kind: 'editor-block'; x: number; y: number; blockId: string; blockType: string; raw: string }
+  | { kind: 'editor-block'; x: number; y: number; blockId: string; blockType: string; raw: string; tableColumnIndex?: number }
   | { kind: 'editor-surface'; x: number; y: number };
 type ContextMenuPayload = ContextMenuState extends infer Menu
   ? Menu extends ContextMenuState
@@ -37,6 +37,7 @@ type ContextMenuItem = {
   children?: ContextMenuItem[];
   action?: () => void | Promise<void>;
 };
+type TableAlignment = 'left' | 'center' | 'right' | 'default';
 
 const minSidebarWidth = 216;
 const maxSidebarWidth = 380;
@@ -105,6 +106,25 @@ function getCodeBlockFenceFromRaw(raw: string) {
   const firstLine = raw.split('\n', 1)[0] ?? '';
   const match = firstLine.match(/^(`{3}|~{3})(.*)$/);
   return match ? match[1] : '```';
+}
+
+function getTableColumnIndexFromTarget(target: HTMLElement | null) {
+  const cell = target?.closest('th,td') as HTMLTableCellElement | null;
+  if (!cell?.closest('.md-table')) return undefined;
+  return cell.cellIndex >= 0 ? cell.cellIndex : undefined;
+}
+
+function getTableAlignmentFromRaw(raw: string, columnIndex: number): TableAlignment {
+  const separator = raw.split('\n')[1] ?? '';
+  const cells = separator
+    .split('|')
+    .slice(1, -1)
+    .map((cell) => cell.trim());
+  const marker = cells[columnIndex] ?? '';
+  if (/^:-+:$/.test(marker)) return 'center';
+  if (/^-+:$/.test(marker)) return 'right';
+  if (/^:-+$/.test(marker)) return 'left';
+  return 'default';
 }
 
 function isConvertibleTextBlock(type: string) {
@@ -821,7 +841,10 @@ export default function App() {
       kind: 'editor-block',
       blockId,
       blockType: block.type,
-      raw: surface.doc.getRawText(blockId)
+      raw: surface.doc.getRawText(blockId),
+      tableColumnIndex: block.type === 'table'
+        ? getTableColumnIndexFromTarget(target)
+        : undefined
     });
   };
 
@@ -901,6 +924,12 @@ export default function App() {
       const codeFence = contextMenu.blockType === 'code-block'
         ? getCodeBlockFenceFromRaw(contextMenu.raw)
         : '```';
+      const tableColumnIndex = contextMenu.blockType === 'table'
+        ? contextMenu.tableColumnIndex
+        : undefined;
+      const tableColumnAlignment = typeof tableColumnIndex === 'number'
+        ? getTableAlignmentFromRaw(contextMenu.raw, tableColumnIndex)
+        : undefined;
       const canMoveBlockUp = Boolean(surface?.doc.getPreviousBlockId(contextMenu.blockId));
       const canMoveBlockDown = Boolean(surface?.doc.getNextBlockId(contextMenu.blockId));
       const runBlockCommand = (command: (editor: Editor) => boolean) => {
@@ -910,9 +939,42 @@ export default function App() {
       };
       const setCodeLanguage = (language: string) => runBlockCommand((editor) => editor.setCodeBlockLanguage(contextMenu.blockId, language));
       const setCodeFence = (fence: '```' | '~~~') => runBlockCommand((editor) => editor.setCodeBlockFence(contextMenu.blockId, fence));
-      const setTableAllColumnsAlignment = (alignment: 'left' | 'center' | 'right' | 'default') => {
+      const setTableColumnAlignment = (columnIndex: number, alignment: TableAlignment) => {
+        runBlockCommand((editor) => editor.setTableColumnAlignment(contextMenu.blockId, columnIndex, alignment));
+      };
+      const setTableAllColumnsAlignment = (alignment: TableAlignment) => {
         runBlockCommand((editor) => editor.setTableAllColumnsAlignment(contextMenu.blockId, alignment));
       };
+      const createTableAlignmentItems = (runAlign: (alignment: TableAlignment) => void, current?: TableAlignment): ContextMenuItem[] => [
+        {
+          label: '默认对齐',
+          icon: '↔',
+          hint: current === 'default' ? '当前' : undefined,
+          disabled: !canEdit || current === 'default',
+          action: () => runAlign('default')
+        },
+        {
+          label: '左对齐',
+          icon: '↤',
+          hint: current === 'left' ? '当前' : undefined,
+          disabled: !canEdit || current === 'left',
+          action: () => runAlign('left')
+        },
+        {
+          label: '居中对齐',
+          icon: '↔',
+          hint: current === 'center' ? '当前' : undefined,
+          disabled: !canEdit || current === 'center',
+          action: () => runAlign('center')
+        },
+        {
+          label: '右对齐',
+          icon: '↦',
+          hint: current === 'right' ? '当前' : undefined,
+          disabled: !canEdit || current === 'right',
+          action: () => runAlign('right')
+        }
+      ];
       const createInsertItems = (placement: 'before' | 'after'): ContextMenuItem[] => {
         const runInsert = (template: Parameters<Editor['insertTemplateBlockAfter']>[1]) => {
           runBlockCommand((editor) => placement === 'before'
@@ -1131,35 +1193,20 @@ export default function App() {
             disabled: false,
             action: copyTableCsv
           },
+          ...(typeof tableColumnIndex === 'number' ? [
+            {
+              label: `设置第 ${tableColumnIndex + 1} 列对齐`,
+              disabled: !canEdit,
+              children: createTableAlignmentItems(
+                (alignment) => setTableColumnAlignment(tableColumnIndex, alignment),
+                tableColumnAlignment
+              )
+            }
+          ] : []),
           {
             label: '设置全部列对齐',
             disabled: !canEdit,
-            children: [
-              {
-                label: '默认对齐',
-                icon: '↔',
-                disabled: !canEdit,
-                action: () => setTableAllColumnsAlignment('default')
-              },
-              {
-                label: '左对齐',
-                icon: '↤',
-                disabled: !canEdit,
-                action: () => setTableAllColumnsAlignment('left')
-              },
-              {
-                label: '居中对齐',
-                icon: '↔',
-                disabled: !canEdit,
-                action: () => setTableAllColumnsAlignment('center')
-              },
-              {
-                label: '右对齐',
-                icon: '↦',
-                disabled: !canEdit,
-                action: () => setTableAllColumnsAlignment('right')
-              }
-            ]
+            children: createTableAlignmentItems(setTableAllColumnsAlignment)
           },
           {
             label: '在表格末尾追加行',
