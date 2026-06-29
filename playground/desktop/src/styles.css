@@ -57,6 +57,14 @@ button {
   cursor: pointer;
 }
 
+button,
+input,
+textarea,
+select,
+a {
+  -webkit-app-region: no-drag;
+}
+
 .desktop-shell {
   display: grid;
   grid-template-columns: var(--sidebar-track, 292px) minmax(560px, 1fr);
@@ -345,6 +353,7 @@ button {
   left: calc(var(--sidebar-track, 292px) - 3px);
   width: 6px;
   cursor: col-resize;
+  -webkit-app-region: no-drag;
 }
 
 .sidebar-resizer::after {
@@ -390,6 +399,7 @@ button {
   box-shadow: var(--liquid-inset);
   backdrop-filter: var(--liquid-blur);
   -webkit-backdrop-filter: var(--liquid-blur);
+  -webkit-app-region: drag;
 }
 
 .tabs-strip {
@@ -401,6 +411,7 @@ button {
   margin-left: var(--titlebar-content-x, 0px);
   width: min(100%, var(--titlebar-content-width, 100%));
   overflow-x: auto;
+  -webkit-app-region: drag;
 }
 
 .tab-chip {
@@ -413,6 +424,7 @@ button {
   box-shadow: var(--liquid-inset);
   backdrop-filter: var(--liquid-blur);
   -webkit-backdrop-filter: var(--liquid-blur);
+  -webkit-app-region: no-drag;
 }
 
 .tab-chip.active {
@@ -598,6 +610,11 @@ button {
   box-shadow: var(--liquid-inset);
   backdrop-filter: var(--liquid-blur);
   -webkit-backdrop-filter: var(--liquid-blur);
+  -webkit-app-region: drag;
+}
+
+.topbar .mode-switch {
+  -webkit-app-region: no-drag;
 }
 
 .topbar .document-heading {
