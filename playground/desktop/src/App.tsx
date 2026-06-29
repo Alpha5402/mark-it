@@ -351,6 +351,7 @@ export default function App() {
   const [isShortcutHintExpanded, setIsShortcutHintExpanded] = useState(false);
   const [formatShortcutState, setFormatShortcutState] = useState<FormatShortcutState>(inactiveFormatShortcutState);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [openSubmenuKey, setOpenSubmenuKey] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -358,6 +359,7 @@ export default function App() {
   const latestMarkdownRef = useRef('');
   const hasRestoredSessionRef = useRef(false);
   const isCommandKeyDownRef = useRef(false);
+  const submenuCloseTimerRef = useRef<number | null>(null);
   const refreshFormatSelectionRef = useRef<() => void>(() => undefined);
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? null,
@@ -374,7 +376,22 @@ export default function App() {
 
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
+    setOpenSubmenuKey(null);
   }, []);
+
+  const cancelSubmenuClose = useCallback(() => {
+    if (submenuCloseTimerRef.current === null) return;
+    window.clearTimeout(submenuCloseTimerRef.current);
+    submenuCloseTimerRef.current = null;
+  }, []);
+
+  const scheduleSubmenuClose = useCallback(() => {
+    cancelSubmenuClose();
+    submenuCloseTimerRef.current = window.setTimeout(() => {
+      setOpenSubmenuKey(null);
+      submenuCloseTimerRef.current = null;
+    }, 220);
+  }, [cancelSubmenuClose]);
 
   const openContextMenu = useCallback((
     event: React.MouseEvent,
@@ -431,6 +448,7 @@ export default function App() {
 
   useEffect(() => {
     if (!contextMenu) return;
+    setOpenSubmenuKey(null);
 
     const close = () => closeContextMenu();
     const closeWhenOutsideMenu = (event: PointerEvent | MouseEvent) => {
@@ -456,6 +474,12 @@ export default function App() {
       window.removeEventListener('keydown', onKeyDown);
     };
   }, [closeContextMenu, contextMenu]);
+
+  useEffect(() => () => {
+    if (submenuCloseTimerRef.current !== null) {
+      window.clearTimeout(submenuCloseTimerRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     if (!window.markItWindow) return;
@@ -1555,10 +1579,13 @@ export default function App() {
       }
 
       const hasChildren = Boolean(item.children?.length);
+      const itemKey = `${depth}-${index}-${item.label}`;
+      const submenuOpen = hasChildren && openSubmenuKey === itemKey;
       const classNames = [
         item.disabled ? 'disabled' : '',
         item.danger ? 'danger' : '',
         hasChildren ? 'has-submenu' : '',
+        submenuOpen ? 'submenu-open' : '',
         item.icon ? 'has-icon' : '',
         item.hint || item.shortcut || hasChildren ? 'has-trailing' : ''
       ].filter(Boolean).join(' ');
@@ -1596,9 +1623,25 @@ export default function App() {
       if (!hasChildren) return button;
 
       return (
-        <div key={`${item.label}-${depth}-${index}`} className="context-menu-submenu">
+        <div
+          key={`${item.label}-${depth}-${index}`}
+          className={`context-menu-submenu ${submenuOpen ? 'open' : ''}`}
+          onMouseEnter={() => {
+            cancelSubmenuClose();
+            setOpenSubmenuKey(itemKey);
+          }}
+          onMouseLeave={scheduleSubmenuClose}
+        >
           {button}
-          <div className="context-menu context-menu-nested" role="menu">
+          <div
+            className="context-menu context-menu-nested"
+            role="menu"
+            onMouseEnter={() => {
+              cancelSubmenuClose();
+              setOpenSubmenuKey(itemKey);
+            }}
+            onMouseLeave={scheduleSubmenuClose}
+          >
             {item.children!.map((child, childIndex) => renderMenuItem(child, childIndex, depth + 1))}
           </div>
         </div>

@@ -529,7 +529,16 @@ a {
   position: relative;
 }
 
-.context-menu-submenu:hover > .context-menu-nested,
+.context-menu-submenu::after {
+  content: "";
+  position: absolute;
+  top: -4px;
+  right: -8px;
+  bottom: -4px;
+  width: 10px;
+}
+
+.context-menu-submenu.open > .context-menu-nested,
 .context-menu-submenu:focus-within > .context-menu-nested {
   opacity: 1;
   pointer-events: auto;
