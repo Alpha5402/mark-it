@@ -1153,6 +1153,11 @@ export default function App() {
           disabled: !canEdit || !canMoveBlockDown,
           action: () => runBlockCommand((editor) => editor.moveBlockDown(contextMenu.blockId))
         },
+        {
+          label: '删除当前块',
+          disabled: !canEdit,
+          action: () => runBlockCommand((editor) => editor.deleteBlock(contextMenu.blockId))
+        },
         { label: '复制当前块 Markdown', action: () => copyText(contextMenu.raw) },
         { label: '复制全文 Markdown', action: () => activeTab && copyText(activeTab.content) },
         {

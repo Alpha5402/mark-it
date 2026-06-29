@@ -1384,6 +1384,21 @@ export class Editor {
     return true
   }
 
+  deleteBlock(blockId: string): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block) return false
+
+    const cursorInfo = this.getCurrentCursorInfo(this.controller['captureSelection']?.() ?? null)
+    this.history.pushSnapshot(this.doc.blocks, cursorInfo)
+
+    const result = this.doc.deleteBlock(blockId)
+    if (!result) return false
+
+    this.rebuildAndFocusBlock(result.focusBlockId, this.doc.prefixOffset(result.focusBlockId))
+    this.notifyContentChange()
+    return true
+  }
+
   moveBlockUp(blockId: string): boolean {
     return this.moveBlock(blockId, 'up')
   }
