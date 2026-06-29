@@ -615,6 +615,24 @@ export class DocumentController {
     return block
   }
 
+  createBlockFromRawTextBefore(rawText: string, beforeBlockId: string): BlockModel | null {
+    const line = tokenizeByLine(rawText)
+    const block = parseLine(line)
+
+    if (!this.blocks.has(beforeBlockId)) return null
+
+    const newBlocks = new Map<string, BlockModel>()
+    for (const [id, b] of this.blocks) {
+      if (id === beforeBlockId) {
+        newBlocks.set(block.id, block)
+      }
+      newBlocks.set(id, b)
+    }
+    this.blocks = newBlocks
+
+    return block
+  }
+
   recoveryOffset = (BlockId: string, offset: number) => {
     const block = this.blocks.get(BlockId)
     if (!block || !block.inline) return
