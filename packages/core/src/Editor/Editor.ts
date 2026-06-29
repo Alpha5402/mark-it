@@ -19,6 +19,15 @@ export type InlineFormatState = {
   link: InlineFormatStatus
 }
 
+export type TextBlockConversionTarget =
+  | 'paragraph'
+  | 'heading-1'
+  | 'heading-2'
+  | 'heading-3'
+  | 'unordered-list'
+  | 'ordered-list'
+  | 'blockquote'
+
 type InlineCoverageSegment = {
   start: number
   end: number
@@ -1326,6 +1335,55 @@ export class Editor {
     this.executeFormat('link')
   }
 
+  insertBlankBlockBefore(blockId: string): boolean {
+    const anchor = this.doc.getBlock(blockId)
+    if (!anchor) return false
+
+    const cursorInfo = this.getCurrentCursorInfo(this.controller['captureSelection']?.() ?? null)
+    this.history.pushSnapshot(this.doc.blocks, cursorInfo)
+
+    const inserted = this.doc.createBlockFromRawTextBefore('', blockId)
+    if (!inserted) return false
+
+    this.rebuildAndFocusBlock(inserted.id, 0)
+    this.notifyContentChange()
+    return true
+  }
+
+  insertBlankBlockAfter(blockId: string): boolean {
+    const anchor = this.doc.getBlock(blockId)
+    if (!anchor) return false
+
+    const cursorInfo = this.getCurrentCursorInfo(this.controller['captureSelection']?.() ?? null)
+    this.history.pushSnapshot(this.doc.blocks, cursorInfo)
+
+    const inserted = this.doc.createBlockFromRawText('', blockId)
+    this.rebuildAndFocusBlock(inserted.id, 0)
+    this.notifyContentChange()
+    return true
+  }
+
+  convertTextBlock(blockId: string, target: TextBlockConversionTarget): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block) return false
+
+    const contentRaw = this.getConvertibleBlockContentRaw(blockId)
+    if (contentRaw === null) return false
+
+    const nextRawText = this.buildConvertedTextBlockRaw(contentRaw, target)
+    if (nextRawText === null) return false
+    const cursorInfo = this.getCurrentCursorInfo(this.controller['captureSelection']?.() ?? null)
+    this.history.pushSnapshot(this.doc.blocks, cursorInfo)
+
+    const effect = this.doc.reconcileFromRawText(blockId, nextRawText)
+    if (!effect || effect.kind === 'code-block-degrade') return false
+
+    const targetBlock = effect.kind === 'block-transform' ? effect.to : effect.block
+    this.rebuildAndFocusBlock(targetBlock.id, this.doc.prefixOffset(targetBlock.id))
+    this.notifyContentChange()
+    return true
+  }
+
   /**
    * 获取当前非折叠选区内行内格式状态。
    * active 表示选区全部处于该格式，inactive 表示全部不处于该格式，
@@ -1393,6 +1451,41 @@ export class Editor {
 
     this.handleFormatToggle(selection, format)
     this.notifyContentChange()
+  }
+
+  private rebuildAndFocusBlock(blockId: string, rawOffset: number): void {
+    const blocks = Array.from(this.doc.getBlocks().values())
+    this.dom.fullRebuild(blocks)
+    const block = this.doc.getBlock(blockId)
+    if (!block) return
+
+    this.dom.renderBlockExpanded(block)
+    this.dom.setCursorByRawOffset(blockId, rawOffset)
+    this.dom.clearHighlight()
+    this.scheduler.highlightBlock(blockId, BlockVisualState.active)
+    this.skipNextSelectionAction = true
+  }
+
+  private getConvertibleBlockContentRaw(blockId: string): string | null {
+    const block = this.doc.getBlock(blockId)
+    if (!block) return null
+    if (block.type === 'code-block' || block.type === 'math-block' || block.type === 'table' || block.type === 'hr') return null
+    if ('footnoteId' in block) return null
+
+    const rawText = this.doc.getRawText(blockId)
+    if (block.type === 'blank') return ''
+    return rawText.slice(this.doc.prefixOffset(blockId))
+  }
+
+  private buildConvertedTextBlockRaw(contentRaw: string, target: TextBlockConversionTarget): string | null {
+    if (target === 'paragraph') return contentRaw
+    if (target === 'heading-1') return `# ${contentRaw}`
+    if (target === 'heading-2') return `## ${contentRaw}`
+    if (target === 'heading-3') return `### ${contentRaw}`
+    if (target === 'unordered-list') return `- ${contentRaw}`
+    if (target === 'ordered-list') return `1. ${contentRaw}`
+    if (target === 'blockquote') return `> ${contentRaw}`
+    return null
   }
 
   /**

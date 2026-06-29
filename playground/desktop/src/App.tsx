@@ -84,6 +84,14 @@ function blockTypeLabel(type: string) {
   return 'Markdown 块';
 }
 
+function isConvertibleTextBlock(type: string) {
+  return type === 'paragraph' ||
+    type === 'heading' ||
+    type === 'list-item' ||
+    type === 'blockquote' ||
+    type === 'blank';
+}
+
 function getFormatShortcutAction(event: KeyboardEvent): FormatShortcutAction | null {
   const key = event.key.toLowerCase();
   if (key === 'b' && !event.shiftKey) return 'bold';
@@ -842,8 +850,49 @@ export default function App() {
 
     if (contextMenu.kind === 'editor-block') {
       const canEdit = Boolean(editorRef.current);
+      const canConvert = canEdit && isConvertibleTextBlock(contextMenu.blockType);
+      const runBlockCommand = (command: (editor: Editor) => boolean) => {
+        const editor = editorRef.current;
+        if (!editor) return;
+        command(editor);
+      };
       return [
         { label: blockTypeLabel(contextMenu.blockType), hint: '编辑区', disabled: true },
+        {
+          label: '在上方插入段落',
+          disabled: !canEdit,
+          action: () => runBlockCommand((editor) => editor.insertBlankBlockBefore(contextMenu.blockId))
+        },
+        {
+          label: '在下方插入段落',
+          disabled: !canEdit,
+          action: () => runBlockCommand((editor) => editor.insertBlankBlockAfter(contextMenu.blockId))
+        },
+        {
+          label: '转换为段落',
+          disabled: !canConvert,
+          action: () => runBlockCommand((editor) => editor.convertTextBlock(contextMenu.blockId, 'paragraph'))
+        },
+        {
+          label: '转换为标题 1',
+          disabled: !canConvert,
+          action: () => runBlockCommand((editor) => editor.convertTextBlock(contextMenu.blockId, 'heading-1'))
+        },
+        {
+          label: '转换为标题 2',
+          disabled: !canConvert,
+          action: () => runBlockCommand((editor) => editor.convertTextBlock(contextMenu.blockId, 'heading-2'))
+        },
+        {
+          label: '转换为无序列表',
+          disabled: !canConvert,
+          action: () => runBlockCommand((editor) => editor.convertTextBlock(contextMenu.blockId, 'unordered-list'))
+        },
+        {
+          label: '转换为引用',
+          disabled: !canConvert,
+          action: () => runBlockCommand((editor) => editor.convertTextBlock(contextMenu.blockId, 'blockquote'))
+        },
         { label: '复制当前块 Markdown', action: () => copyText(contextMenu.raw) },
         { label: '复制全文 Markdown', action: () => activeTab && copyText(activeTab.content) },
         {
