@@ -35,6 +35,8 @@ export type BlockTemplateTarget =
   | 'math-block'
   | 'table'
 
+export type TableAlignmentTarget = 'left' | 'center' | 'right' | 'default'
+
 type InlineCoverageSegment = {
   start: number
   end: number
@@ -1651,6 +1653,37 @@ export class Editor {
     return this.applyBlockRawCommand(blockId, nextRawText, firstCellOffset)
   }
 
+  setTableColumnAlignment(blockId: string, columnIndex: number, alignment: TableAlignmentTarget): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'table') return false
+
+    const table = block as TableBlock
+    if (!Number.isInteger(columnIndex) || columnIndex < 0 || columnIndex >= table.headers.length) return false
+    if ((table.aligns[columnIndex] ?? 'default') === alignment) return false
+
+    const aligns = [...table.aligns]
+    while (aligns.length < table.headers.length) aligns.push('default')
+    aligns[columnIndex] = alignment
+
+    const nextRawText = this.buildTableRaw(table.headers, aligns, table.rows)
+    const separatorOffset = nextRawText.split('\n', 1)[0].length + 1
+    return this.applyBlockRawCommand(blockId, nextRawText, separatorOffset)
+  }
+
+  setTableAllColumnsAlignment(blockId: string, alignment: TableAlignmentTarget): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'table') return false
+
+    const table = block as TableBlock
+    if (table.headers.length === 0) return false
+    if (table.headers.every((_, index) => (table.aligns[index] ?? 'default') === alignment)) return false
+
+    const aligns = table.headers.map(() => alignment)
+    const nextRawText = this.buildTableRaw(table.headers, aligns, table.rows)
+    const separatorOffset = nextRawText.split('\n', 1)[0].length + 1
+    return this.applyBlockRawCommand(blockId, nextRawText, separatorOffset)
+  }
+
   convertTextBlock(blockId: string, target: TextBlockConversionTarget): boolean {
     const block = this.doc.getBlock(blockId)
     if (!block) return false
@@ -1833,7 +1866,7 @@ export class Editor {
 
   private buildTableRaw(
     headers: string[],
-    aligns: ('left' | 'center' | 'right' | 'default')[],
+    aligns: TableAlignmentTarget[],
     rows: string[][]
   ): string {
     const headerRow = `| ${headers.join(' | ')} |`
