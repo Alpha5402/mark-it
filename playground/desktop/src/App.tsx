@@ -1428,13 +1428,20 @@ export default function App() {
       }
 
       const hasChildren = Boolean(item.children?.length);
+      const classNames = [
+        item.disabled ? 'disabled' : '',
+        item.danger ? 'danger' : '',
+        hasChildren ? 'has-submenu' : '',
+        item.icon ? 'has-icon' : '',
+        item.hint || hasChildren ? 'has-trailing' : ''
+      ].filter(Boolean).join(' ');
       const button = (
         <button
           key={`${item.label}-${depth}-${index}`}
           type="button"
           role="menuitem"
           aria-haspopup={hasChildren ? 'menu' : undefined}
-          className={`${item.disabled ? 'disabled' : ''} ${item.danger ? 'danger' : ''} ${hasChildren ? 'has-submenu' : ''}`}
+          className={classNames}
           disabled={item.disabled}
           onClick={async (event) => {
             if (hasChildren) {
@@ -1445,7 +1452,7 @@ export default function App() {
             closeContextMenu();
           }}
         >
-          <span className="context-menu-icon" aria-hidden="true">{item.icon ?? ''}</span>
+          {item.icon && <span className="context-menu-icon" aria-hidden="true">{item.icon}</span>}
           <span>{item.label}</span>
           {hasChildren ? <small>›</small> : item.hint && <small>{item.hint}</small>}
         </button>
