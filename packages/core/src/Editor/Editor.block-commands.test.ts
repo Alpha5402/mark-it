@@ -121,6 +121,12 @@ describe('Editor block commands', () => {
       raw: '| a | b |\n| --- | --- |\n| 1 | 2 |\n|  |  |',
     })
 
+    expect(editor.insertTableColumnAfter(table.id)).toBe(true)
+    expect(snapshot(editor)[2]).toMatchObject({
+      type: 'table',
+      raw: '| a | b |  |\n| --- | --- | --- |\n| 1 | 2 |  |\n|  |  |  |',
+    })
+
     editor.destroy()
   })
 
@@ -131,6 +137,7 @@ describe('Editor block commands', () => {
     expect(editor.toggleTaskListItem(id)).toBe(false)
     expect(editor.setCodeBlockLanguage(id, 'ts')).toBe(false)
     expect(editor.insertTableRowAfter(id)).toBe(false)
+    expect(editor.insertTableColumnAfter(id)).toBe(false)
     expect(snapshot(editor)).toMatchObject([
       { type: 'paragraph', raw: 'paragraph' },
     ])
