@@ -9,7 +9,10 @@ contextBridge.exposeInMainWorld('markItWorkspace', {
   setDirtyState: (hasDirtyTabs) => ipcRenderer.send('workspace:dirty-state', { hasDirtyTabs }),
   openFile: () => ipcRenderer.invoke('workspace:open-file'),
   readFile: (filePath) => ipcRenderer.invoke('workspace:read-file', filePath),
-  writeFile: (filePath, content) => ipcRenderer.invoke('workspace:write-file', filePath, content)
+  writeFile: (filePath, content) => ipcRenderer.invoke('workspace:write-file', filePath, content),
+  createMarkdownFile: (targetPath) => ipcRenderer.invoke('workspace:create-markdown-file', targetPath),
+  createDirectory: (targetPath) => ipcRenderer.invoke('workspace:create-directory', targetPath),
+  revealPath: (targetPath) => ipcRenderer.invoke('workspace:reveal-path', targetPath)
 });
 
 contextBridge.exposeInMainWorld('markItWindow', {
