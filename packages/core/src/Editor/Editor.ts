@@ -1606,20 +1606,28 @@ export class Editor {
     return this.applyBlockRawCommand(blockId, nextRawText, rowStartOffset + 2)
   }
 
-  insertTableColumnAfter(blockId: string): boolean {
+  insertTableColumnAfter(blockId: string, columnIndex?: number): boolean {
     const block = this.doc.getBlock(blockId)
     if (!block || block.type !== 'table') return false
 
     const table = block as TableBlock
-    const headers = [...table.headers, '']
-    const aligns = [...table.aligns, 'default' as const]
+    const insertAfterIndex = columnIndex ?? table.headers.length - 1
+    if (!Number.isInteger(insertAfterIndex) || insertAfterIndex < 0 || insertAfterIndex >= table.headers.length) return false
+
+    const insertAt = insertAfterIndex + 1
+    const headers = [...table.headers]
+    headers.splice(insertAt, 0, '')
+    const aligns = [...table.aligns]
+    while (aligns.length < table.headers.length) aligns.push('default')
+    aligns.splice(insertAt, 0, 'default')
     const rows = table.rows.map(row => {
       const normalizedRow = row.slice(0, table.headers.length)
       while (normalizedRow.length < table.headers.length) normalizedRow.push('')
-      return [...normalizedRow, '']
+      normalizedRow.splice(insertAt, 0, '')
+      return normalizedRow
     })
     const nextRawText = this.buildTableRaw(headers, aligns, rows)
-    const firstCellOffset = Math.max(0, nextRawText.split('\n')[0].length - 2)
+    const firstCellOffset = this.getTableCellRawOffset(headers, insertAt)
 
     return this.applyBlockRawCommand(blockId, nextRawText, firstCellOffset)
   }
@@ -1642,13 +1650,29 @@ export class Editor {
     if (!block || block.type !== 'table') return false
 
     const table = block as TableBlock
-    if (table.headers.length <= 1) return false
+    return this.deleteTableColumn(blockId, table.headers.length - 1)
+  }
 
-    const headers = table.headers.slice(0, -1)
-    const aligns = table.aligns.slice(0, headers.length)
-    const rows = table.rows.map(row => row.slice(0, headers.length))
+  deleteTableColumn(blockId: string, columnIndex: number): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'table') return false
+
+    const table = block as TableBlock
+    if (table.headers.length <= 1) return false
+    if (!Number.isInteger(columnIndex) || columnIndex < 0 || columnIndex >= table.headers.length) return false
+
+    const headers = table.headers.filter((_, index) => index !== columnIndex)
+    const aligns = table.aligns
+      .slice(0, table.headers.length)
+      .filter((_, index) => index !== columnIndex)
+    const rows = table.rows.map(row => {
+      const normalizedRow = row.slice(0, table.headers.length)
+      while (normalizedRow.length < table.headers.length) normalizedRow.push('')
+      return normalizedRow.filter((_, index) => index !== columnIndex)
+    })
     const nextRawText = this.buildTableRaw(headers, aligns, rows)
-    const firstCellOffset = Math.max(0, nextRawText.split('\n')[0].length - 2)
+    const focusColumnIndex = Math.min(columnIndex, headers.length - 1)
+    const firstCellOffset = this.getTableCellRawOffset(headers, focusColumnIndex)
 
     return this.applyBlockRawCommand(blockId, nextRawText, firstCellOffset)
   }
@@ -1879,6 +1903,15 @@ export class Editor {
     }).join(' | ')} |`
     const dataRows = rows.map(row => `| ${headers.map((_, index) => row[index] ?? '').join(' | ')} |`)
     return [headerRow, separatorRow, ...dataRows].join('\n')
+  }
+
+  private getTableCellRawOffset(headers: string[], columnIndex: number): number {
+    const boundedIndex = Math.max(0, Math.min(columnIndex, headers.length - 1))
+    let offset = 2
+    for (let index = 0; index < boundedIndex; index += 1) {
+      offset += headers[index].length + 3
+    }
+    return offset
   }
 
   /**
