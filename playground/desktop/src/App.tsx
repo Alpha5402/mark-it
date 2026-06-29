@@ -869,6 +869,26 @@ export default function App() {
           action: () => runBlockCommand((editor) => editor.insertBlankBlockAfter(contextMenu.blockId))
         },
         {
+          label: '在下方插入任务列表',
+          disabled: !canEdit,
+          action: () => runBlockCommand((editor) => editor.insertTemplateBlockAfter(contextMenu.blockId, 'task-list'))
+        },
+        {
+          label: '在下方插入代码块',
+          disabled: !canEdit,
+          action: () => runBlockCommand((editor) => editor.insertTemplateBlockAfter(contextMenu.blockId, 'code-block'))
+        },
+        {
+          label: '在下方插入公式块',
+          disabled: !canEdit,
+          action: () => runBlockCommand((editor) => editor.insertTemplateBlockAfter(contextMenu.blockId, 'math-block'))
+        },
+        {
+          label: '在下方插入表格',
+          disabled: !canEdit,
+          action: () => runBlockCommand((editor) => editor.insertTemplateBlockAfter(contextMenu.blockId, 'table'))
+        },
+        {
           label: '转换为段落',
           disabled: !canConvert,
           action: () => runBlockCommand((editor) => editor.convertTextBlock(contextMenu.blockId, 'paragraph'))

@@ -78,4 +78,24 @@ describe('Editor block commands', () => {
 
     editor.destroy()
   })
+
+  test('inserts common markdown module templates after a target block', () => {
+    const editor = createEditor('anchor')
+    const anchorId = snapshot(editor)[0].id
+
+    expect(editor.insertTemplateBlockAfter(anchorId, 'task-list')).toBe(true)
+    expect(editor.insertTemplateBlockAfter(anchorId, 'code-block')).toBe(true)
+    expect(editor.insertTemplateBlockAfter(anchorId, 'math-block')).toBe(true)
+    expect(editor.insertTemplateBlockAfter(anchorId, 'table')).toBe(true)
+
+    expect(snapshot(editor)).toMatchObject([
+      { type: 'paragraph', raw: 'anchor' },
+      { type: 'table', raw: '|  |  |\n| --- | --- |\n|  |  |' },
+      { type: 'math-block', raw: '$$\n\n$$' },
+      { type: 'code-block', raw: '```\n\n```' },
+      { type: 'list-item', raw: '- [ ] ' },
+    ])
+
+    editor.destroy()
+  })
 })
