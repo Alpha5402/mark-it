@@ -1639,6 +1639,53 @@ export class Editor {
     return this.applyBlockRawCommand(blockId, nextRawText, firstCellOffset)
   }
 
+  duplicateTableRowAfter(blockId: string, rowIndex: number): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'table') return false
+
+    const table = block as TableBlock
+    if (!Number.isInteger(rowIndex) || rowIndex < 0 || rowIndex >= table.rows.length) return false
+
+    const columnCount = Math.max(1, table.headers.length)
+    const rows = table.rows.map(row => {
+      const normalizedRow = row.slice(0, columnCount)
+      while (normalizedRow.length < columnCount) normalizedRow.push('')
+      return normalizedRow
+    })
+    rows.splice(rowIndex + 1, 0, [...rows[rowIndex]])
+    const nextRawText = this.buildTableRaw(table.headers, table.aligns, rows)
+    const rowStartOffset = this.getTableRowRawOffset(table.headers, table.aligns, rows, rowIndex + 1)
+
+    return this.applyBlockRawCommand(blockId, nextRawText, rowStartOffset + 2)
+  }
+
+  duplicateTableColumnAfter(blockId: string, columnIndex: number): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'table') return false
+
+    const table = block as TableBlock
+    if (!Number.isInteger(columnIndex) || columnIndex < 0 || columnIndex >= table.headers.length) return false
+
+    const insertAt = columnIndex + 1
+    const headers = [...table.headers]
+    headers.splice(insertAt, 0, table.headers[columnIndex] ?? '')
+
+    const aligns = [...table.aligns]
+    while (aligns.length < table.headers.length) aligns.push('default')
+    aligns.splice(insertAt, 0, aligns[columnIndex] ?? 'default')
+
+    const rows = table.rows.map(row => {
+      const normalizedRow = row.slice(0, table.headers.length)
+      while (normalizedRow.length < table.headers.length) normalizedRow.push('')
+      normalizedRow.splice(insertAt, 0, normalizedRow[columnIndex] ?? '')
+      return normalizedRow
+    })
+    const nextRawText = this.buildTableRaw(headers, aligns, rows)
+    const firstCellOffset = this.getTableCellRawOffset(headers, insertAt)
+
+    return this.applyBlockRawCommand(blockId, nextRawText, firstCellOffset)
+  }
+
   deleteTableLastRow(blockId: string): boolean {
     const block = this.doc.getBlock(blockId)
     if (!block || block.type !== 'table') return false
