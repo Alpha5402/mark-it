@@ -1233,6 +1233,11 @@ export default function App() {
               label: `复制第 ${tableRowIndex + 1} 行到下方`,
               disabled: !canEdit,
               action: () => runBlockCommand((editor) => editor.duplicateTableRowAfter(contextMenu.blockId, tableRowIndex))
+            },
+            {
+              label: `清空第 ${tableRowIndex + 1} 行内容`,
+              disabled: !canEdit,
+              action: () => runBlockCommand((editor) => editor.clearTableRow(contextMenu.blockId, tableRowIndex))
             }
           ] : [
             {
@@ -1251,6 +1256,11 @@ export default function App() {
               label: `复制第 ${tableColumnIndex + 1} 列到右侧`,
               disabled: !canEdit,
               action: () => runBlockCommand((editor) => editor.duplicateTableColumnAfter(contextMenu.blockId, tableColumnIndex))
+            },
+            {
+              label: `清空第 ${tableColumnIndex + 1} 列内容`,
+              disabled: !canEdit,
+              action: () => runBlockCommand((editor) => editor.clearTableColumn(contextMenu.blockId, tableColumnIndex))
             }
           ] : [
             {
