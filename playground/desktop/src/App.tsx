@@ -910,6 +910,9 @@ export default function App() {
       };
       const setCodeLanguage = (language: string) => runBlockCommand((editor) => editor.setCodeBlockLanguage(contextMenu.blockId, language));
       const setCodeFence = (fence: '```' | '~~~') => runBlockCommand((editor) => editor.setCodeBlockFence(contextMenu.blockId, fence));
+      const setTableAllColumnsAlignment = (alignment: 'left' | 'center' | 'right' | 'default') => {
+        runBlockCommand((editor) => editor.setTableAllColumnsAlignment(contextMenu.blockId, alignment));
+      };
       const createInsertItems = (placement: 'before' | 'after'): ContextMenuItem[] => {
         const runInsert = (template: Parameters<Editor['insertTemplateBlockAfter']>[1]) => {
           runBlockCommand((editor) => placement === 'before'
@@ -1127,6 +1130,36 @@ export default function App() {
             label: '复制表格 CSV',
             disabled: false,
             action: copyTableCsv
+          },
+          {
+            label: '设置全部列对齐',
+            disabled: !canEdit,
+            children: [
+              {
+                label: '默认对齐',
+                icon: '↔',
+                disabled: !canEdit,
+                action: () => setTableAllColumnsAlignment('default')
+              },
+              {
+                label: '左对齐',
+                icon: '↤',
+                disabled: !canEdit,
+                action: () => setTableAllColumnsAlignment('left')
+              },
+              {
+                label: '居中对齐',
+                icon: '↔',
+                disabled: !canEdit,
+                action: () => setTableAllColumnsAlignment('center')
+              },
+              {
+                label: '右对齐',
+                icon: '↦',
+                disabled: !canEdit,
+                action: () => setTableAllColumnsAlignment('right')
+              }
+            ]
           },
           {
             label: '在表格末尾追加行',
