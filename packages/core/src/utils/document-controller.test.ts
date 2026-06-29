@@ -60,6 +60,18 @@ describe('DocumentController raw round-trip', () => {
     expect(snapshot(doc).map(b => b.raw)).toEqual(['```\n```', '$$\n$$'])
   })
 
+  test('exposes fenced code content without markdown fences', () => {
+    const doc = new DocumentController('```ts\nconst x = 1\nconsole.log(x)\n```\nplain')
+    const [code, paragraph] = snapshot(doc)
+
+    expect(doc.getCodeBlockContent(code.id)).toBe('const x = 1\nconsole.log(x)')
+    expect(doc.getCodeBlockContent(paragraph.id)).toBeNull()
+
+    const empty = new DocumentController('```\n```')
+    expect(doc.getCodeBlockContent('missing')).toBeNull()
+    expect(empty.getCodeBlockContent(snapshot(empty)[0].id)).toBe('')
+  })
+
   test('keeps whole-line single-line $$ spans as paragraph text', () => {
     const doc = new DocumentController('before\n$$\\frac{a}{b}$$\nafter')
 

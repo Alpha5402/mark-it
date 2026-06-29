@@ -876,6 +876,12 @@ export default function App() {
         command(editor);
       };
       const setCodeLanguage = (language: string) => runBlockCommand((editor) => editor.setCodeBlockLanguage(contextMenu.blockId, language));
+      const copyCodeBlockContent = () => {
+        const surface = editorRef.current ?? rendererRef.current;
+        const code = surface?.doc.getCodeBlockContent(contextMenu.blockId);
+        if (code === null || code === undefined) return;
+        void copyText(code);
+      };
       return [
         { label: blockTypeLabel(contextMenu.blockType), hint: '编辑区', disabled: true },
         {
@@ -916,6 +922,11 @@ export default function App() {
           }
         ] : []),
         ...(contextMenu.blockType === 'code-block' ? [
+          {
+            label: '复制代码内容',
+            disabled: false,
+            action: copyCodeBlockContent
+          },
           {
             label: '设为 TypeScript 代码',
             hint: codeLanguage === 'ts' ? '当前' : undefined,
