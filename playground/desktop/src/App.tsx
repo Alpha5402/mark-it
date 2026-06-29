@@ -951,6 +951,11 @@ export default function App() {
             label: '在表格末尾追加行',
             disabled: !canEdit,
             action: () => runBlockCommand((editor) => editor.insertTableRowAfter(contextMenu.blockId))
+          },
+          {
+            label: '在表格末尾追加列',
+            disabled: !canEdit,
+            action: () => runBlockCommand((editor) => editor.insertTableColumnAfter(contextMenu.blockId))
           }
         ] : []),
         {
