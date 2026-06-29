@@ -1421,6 +1421,27 @@ export class Editor {
     return this.applyBlockRawCommand(blockId, nextRawText, this.doc.prefixOffset(blockId))
   }
 
+  indentListItem(blockId: string): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'list-item') return false
+
+    const rawText = this.doc.getRawText(blockId)
+    return this.applyBlockRawCommand(blockId, `    ${rawText}`, this.doc.prefixOffset(blockId) + 4)
+  }
+
+  outdentListItem(blockId: string): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'list-item') return false
+
+    const nesting = block.nesting ?? 0
+    if (nesting <= 0) return false
+
+    const rawText = this.doc.getRawText(blockId)
+    const spacesToRemove = Math.min(4, nesting)
+    const nextRawText = rawText.slice(spacesToRemove)
+    return this.applyBlockRawCommand(blockId, nextRawText, Math.max(0, this.doc.prefixOffset(blockId) - spacesToRemove))
+  }
+
   setCodeBlockLanguage(blockId: string, language: string): boolean {
     const block = this.doc.getBlock(blockId)
     if (!block || block.type !== 'code-block') return false
