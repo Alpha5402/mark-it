@@ -1213,21 +1213,37 @@ export default function App() {
             disabled: !canEdit,
             action: () => runBlockCommand((editor) => editor.insertTableRowAfter(contextMenu.blockId))
           },
-          {
-            label: '在表格末尾追加列',
-            disabled: !canEdit,
-            action: () => runBlockCommand((editor) => editor.insertTableColumnAfter(contextMenu.blockId))
-          },
+          ...(typeof tableColumnIndex === 'number' ? [
+            {
+              label: `在第 ${tableColumnIndex + 1} 列右侧插入列`,
+              disabled: !canEdit,
+              action: () => runBlockCommand((editor) => editor.insertTableColumnAfter(contextMenu.blockId, tableColumnIndex))
+            }
+          ] : [
+            {
+              label: '在表格末尾追加列',
+              disabled: !canEdit,
+              action: () => runBlockCommand((editor) => editor.insertTableColumnAfter(contextMenu.blockId))
+            }
+          ]),
           {
             label: '删除表格末尾行',
             disabled: !canEdit,
             action: () => runBlockCommand((editor) => editor.deleteTableLastRow(contextMenu.blockId))
           },
-          {
-            label: '删除表格末尾列',
-            disabled: !canEdit,
-            action: () => runBlockCommand((editor) => editor.deleteTableLastColumn(contextMenu.blockId))
-          }
+          ...(typeof tableColumnIndex === 'number' ? [
+            {
+              label: `删除第 ${tableColumnIndex + 1} 列`,
+              disabled: !canEdit,
+              action: () => runBlockCommand((editor) => editor.deleteTableColumn(contextMenu.blockId, tableColumnIndex))
+            }
+          ] : [
+            {
+              label: '删除表格末尾列',
+              disabled: !canEdit,
+              action: () => runBlockCommand((editor) => editor.deleteTableLastColumn(contextMenu.blockId))
+            }
+          ])
         ] : []),
         {
           label: '转换为',
