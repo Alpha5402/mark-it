@@ -963,6 +963,12 @@ export default function App() {
         if (tex === null || tex === undefined) return;
         void copyText(tex);
       };
+      const copyTableCsv = () => {
+        const surface = editorRef.current ?? rendererRef.current;
+        const csv = surface?.doc.getTableCsv(contextMenu.blockId);
+        if (csv === null || csv === undefined) return;
+        void copyText(csv);
+      };
       return [
         { label: blockTypeLabel(contextMenu.blockType), hint: '编辑区', disabled: true },
         {
@@ -1027,6 +1033,11 @@ export default function App() {
           }
         ] : []),
         ...(contextMenu.blockType === 'table' ? [
+          {
+            label: '复制表格 CSV',
+            disabled: false,
+            action: copyTableCsv
+          },
           {
             label: '在表格末尾追加行',
             disabled: !canEdit,
