@@ -98,4 +98,43 @@ describe('Editor block commands', () => {
 
     editor.destroy()
   })
+
+  test('runs module-specific commands through markdown raw text', () => {
+    const editor = createEditor('- [ ] todo\n```js\nconst x = 1\n```\n| a | b |\n| --- | --- |\n| 1 | 2 |')
+    const [task, code, table] = snapshot(editor)
+
+    expect(editor.toggleTaskListItem(task.id)).toBe(true)
+    expect(snapshot(editor)[0]).toMatchObject({
+      type: 'list-item',
+      raw: '- [x] todo',
+    })
+
+    expect(editor.setCodeBlockLanguage(code.id, 'ts')).toBe(true)
+    expect(snapshot(editor)[1]).toMatchObject({
+      type: 'code-block',
+      raw: '```ts\nconst x = 1\n```',
+    })
+
+    expect(editor.insertTableRowAfter(table.id)).toBe(true)
+    expect(snapshot(editor)[2]).toMatchObject({
+      type: 'table',
+      raw: '| a | b |\n| --- | --- |\n| 1 | 2 |\n|  |  |',
+    })
+
+    editor.destroy()
+  })
+
+  test('rejects module-specific commands on incompatible blocks', () => {
+    const editor = createEditor('paragraph')
+    const id = snapshot(editor)[0].id
+
+    expect(editor.toggleTaskListItem(id)).toBe(false)
+    expect(editor.setCodeBlockLanguage(id, 'ts')).toBe(false)
+    expect(editor.insertTableRowAfter(id)).toBe(false)
+    expect(snapshot(editor)).toMatchObject([
+      { type: 'paragraph', raw: 'paragraph' },
+    ])
+
+    editor.destroy()
+  })
 })

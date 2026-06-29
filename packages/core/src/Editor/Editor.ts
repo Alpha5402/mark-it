@@ -1386,6 +1386,54 @@ export class Editor {
     return true
   }
 
+  toggleTaskListItem(blockId: string): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'list-item') return false
+
+    const listItem = block as ListItemBlock
+    if (!('task' in listItem.style) || !listItem.style.task) return false
+
+    const rawText = this.doc.getRawText(blockId)
+    const nextRawText = rawText.replace(
+      /^(\s*[-*+] \[)(?: |x|X)(\]\s*)/,
+      `$1${listItem.style.checked ? ' ' : 'x'}$2`
+    )
+    if (nextRawText === rawText) return false
+
+    return this.applyBlockRawCommand(blockId, nextRawText, this.doc.prefixOffset(blockId))
+  }
+
+  setCodeBlockLanguage(blockId: string, language: string): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'code-block') return false
+
+    const codeBlock = block as CodeBlock
+    const normalizedLanguage = language.trim().replace(/\s+/g, '')
+    if (normalizedLanguage === codeBlock.language) return false
+
+    const rawText = this.doc.getRawText(blockId)
+    const fence = codeBlock.fence ?? '```'
+    const nextOpeningLine = `${fence}${normalizedLanguage}`
+    const nextRawText = rawText.replace(/^[^\n]*/, nextOpeningLine)
+    const cursorRawOffset = Math.min(nextRawText.length, nextOpeningLine.length + 1)
+
+    return this.applyBlockRawCommand(blockId, nextRawText, cursorRawOffset)
+  }
+
+  insertTableRowAfter(blockId: string): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'table') return false
+
+    const table = block as TableBlock
+    const columnCount = Math.max(1, table.headers.length)
+    const rowRaw = `| ${Array.from({ length: columnCount }, () => '').join(' | ')} |`
+    const rawText = this.doc.getRawText(blockId)
+    const rowStartOffset = rawText.length + 1
+    const nextRawText = `${rawText}\n${rowRaw}`
+
+    return this.applyBlockRawCommand(blockId, nextRawText, rowStartOffset + 2)
+  }
+
   convertTextBlock(blockId: string, target: TextBlockConversionTarget): boolean {
     const block = this.doc.getBlock(blockId)
     if (!block) return false
@@ -1403,6 +1451,22 @@ export class Editor {
 
     const targetBlock = effect.kind === 'block-transform' ? effect.to : effect.block
     this.rebuildAndFocusBlock(targetBlock.id, this.doc.prefixOffset(targetBlock.id))
+    this.notifyContentChange()
+    return true
+  }
+
+  private applyBlockRawCommand(blockId: string, nextRawText: string, cursorRawOffset: number): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block) return false
+
+    const cursorInfo = this.getCurrentCursorInfo(this.controller['captureSelection']?.() ?? null)
+    this.history.pushSnapshot(this.doc.blocks, cursorInfo)
+
+    const effect = this.doc.reconcileFromRawText(blockId, nextRawText)
+    if (!effect || effect.kind === 'code-block-degrade') return false
+
+    const targetBlock = effect.kind === 'block-transform' ? effect.to : effect.block
+    this.rebuildAndFocusBlock(targetBlock.id, cursorRawOffset)
     this.notifyContentChange()
     return true
   }

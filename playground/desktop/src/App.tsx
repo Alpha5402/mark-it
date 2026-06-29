@@ -84,6 +84,20 @@ function blockTypeLabel(type: string) {
   return 'Markdown 块';
 }
 
+function isTaskListRaw(raw: string) {
+  return /^\s*[-*+] \[(?: |x|X)\]\s/.test(raw);
+}
+
+function isCheckedTaskRaw(raw: string) {
+  return /^\s*[-*+] \[(?:x|X)\]\s/.test(raw);
+}
+
+function getCodeBlockLanguageFromRaw(raw: string) {
+  const firstLine = raw.split('\n', 1)[0] ?? '';
+  const match = firstLine.match(/^(`{3,}|~{3,})(.*)$/);
+  return match ? match[2].trim() : '';
+}
+
 function isConvertibleTextBlock(type: string) {
   return type === 'paragraph' ||
     type === 'heading' ||
@@ -851,11 +865,17 @@ export default function App() {
     if (contextMenu.kind === 'editor-block') {
       const canEdit = Boolean(editorRef.current);
       const canConvert = canEdit && isConvertibleTextBlock(contextMenu.blockType);
+      const isTaskList = contextMenu.blockType === 'list-item' && isTaskListRaw(contextMenu.raw);
+      const isCheckedTask = isCheckedTaskRaw(contextMenu.raw);
+      const codeLanguage = contextMenu.blockType === 'code-block'
+        ? getCodeBlockLanguageFromRaw(contextMenu.raw)
+        : '';
       const runBlockCommand = (command: (editor: Editor) => boolean) => {
         const editor = editorRef.current;
         if (!editor) return;
         command(editor);
       };
+      const setCodeLanguage = (language: string) => runBlockCommand((editor) => editor.setCodeBlockLanguage(contextMenu.blockId, language));
       return [
         { label: blockTypeLabel(contextMenu.blockType), hint: '编辑区', disabled: true },
         {
@@ -888,6 +908,51 @@ export default function App() {
           disabled: !canEdit,
           action: () => runBlockCommand((editor) => editor.insertTemplateBlockAfter(contextMenu.blockId, 'table'))
         },
+        ...(isTaskList ? [
+          {
+            label: isCheckedTask ? '标记任务为未完成' : '标记任务为已完成',
+            disabled: !canEdit,
+            action: () => runBlockCommand((editor) => editor.toggleTaskListItem(contextMenu.blockId))
+          }
+        ] : []),
+        ...(contextMenu.blockType === 'code-block' ? [
+          {
+            label: '设为 TypeScript 代码',
+            hint: codeLanguage === 'ts' ? '当前' : undefined,
+            disabled: !canEdit || codeLanguage === 'ts',
+            action: () => setCodeLanguage('ts')
+          },
+          {
+            label: '设为 JavaScript 代码',
+            hint: codeLanguage === 'js' ? '当前' : undefined,
+            disabled: !canEdit || codeLanguage === 'js',
+            action: () => setCodeLanguage('js')
+          },
+          {
+            label: '设为 Python 代码',
+            hint: codeLanguage === 'python' ? '当前' : undefined,
+            disabled: !canEdit || codeLanguage === 'python',
+            action: () => setCodeLanguage('python')
+          },
+          {
+            label: '设为 Bash 代码',
+            hint: codeLanguage === 'bash' ? '当前' : undefined,
+            disabled: !canEdit || codeLanguage === 'bash',
+            action: () => setCodeLanguage('bash')
+          },
+          {
+            label: '清除代码语言',
+            disabled: !canEdit || codeLanguage === '',
+            action: () => setCodeLanguage('')
+          }
+        ] : []),
+        ...(contextMenu.blockType === 'table' ? [
+          {
+            label: '在表格末尾追加行',
+            disabled: !canEdit,
+            action: () => runBlockCommand((editor) => editor.insertTableRowAfter(contextMenu.blockId))
+          }
+        ] : []),
         {
           label: '转换为段落',
           disabled: !canConvert,
