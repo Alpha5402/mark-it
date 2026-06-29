@@ -907,6 +907,50 @@ export default function App() {
           { label: '表格', icon: '⊞', disabled: !canEdit, action: () => runInsert('table') }
         ];
       };
+      const createConvertItems = (): ContextMenuItem[] => [
+        {
+          label: '段落',
+          icon: '¶',
+          disabled: !canConvert,
+          action: () => runBlockCommand((editor) => editor.convertTextBlock(contextMenu.blockId, 'paragraph'))
+        },
+        {
+          label: '标题 1',
+          icon: 'H1',
+          disabled: !canConvert,
+          action: () => runBlockCommand((editor) => editor.convertTextBlock(contextMenu.blockId, 'heading-1'))
+        },
+        {
+          label: '标题 2',
+          icon: 'H2',
+          disabled: !canConvert,
+          action: () => runBlockCommand((editor) => editor.convertTextBlock(contextMenu.blockId, 'heading-2'))
+        },
+        {
+          label: '标题 3',
+          icon: 'H3',
+          disabled: !canConvert,
+          action: () => runBlockCommand((editor) => editor.convertTextBlock(contextMenu.blockId, 'heading-3'))
+        },
+        {
+          label: '无序列表',
+          icon: '•',
+          disabled: !canConvert,
+          action: () => runBlockCommand((editor) => editor.convertTextBlock(contextMenu.blockId, 'unordered-list'))
+        },
+        {
+          label: '有序列表',
+          icon: '1.',
+          disabled: !canConvert,
+          action: () => runBlockCommand((editor) => editor.convertTextBlock(contextMenu.blockId, 'ordered-list'))
+        },
+        {
+          label: '引用',
+          icon: '❯',
+          disabled: !canConvert,
+          action: () => runBlockCommand((editor) => editor.convertTextBlock(contextMenu.blockId, 'blockquote'))
+        }
+      ];
       const copyCodeBlockContent = () => {
         const surface = editorRef.current ?? rendererRef.current;
         const code = surface?.doc.getCodeBlockContent(contextMenu.blockId);
@@ -1005,30 +1049,11 @@ export default function App() {
           }
         ] : []),
         {
-          label: '转换为段落',
+          label: '转换为',
           disabled: !canConvert,
-          action: () => runBlockCommand((editor) => editor.convertTextBlock(contextMenu.blockId, 'paragraph'))
+          children: createConvertItems()
         },
-        {
-          label: '转换为标题 1',
-          disabled: !canConvert,
-          action: () => runBlockCommand((editor) => editor.convertTextBlock(contextMenu.blockId, 'heading-1'))
-        },
-        {
-          label: '转换为标题 2',
-          disabled: !canConvert,
-          action: () => runBlockCommand((editor) => editor.convertTextBlock(contextMenu.blockId, 'heading-2'))
-        },
-        {
-          label: '转换为无序列表',
-          disabled: !canConvert,
-          action: () => runBlockCommand((editor) => editor.convertTextBlock(contextMenu.blockId, 'unordered-list'))
-        },
-        {
-          label: '转换为引用',
-          disabled: !canConvert,
-          action: () => runBlockCommand((editor) => editor.convertTextBlock(contextMenu.blockId, 'blockquote'))
-        },
+        { label: '', separator: true },
         { label: '复制当前块 Markdown', action: () => copyText(contextMenu.raw) },
         { label: '复制全文 Markdown', action: () => activeTab && copyText(activeTab.content) },
         {

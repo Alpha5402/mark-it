@@ -49,9 +49,19 @@ describe('Editor block commands', () => {
       { type: 'heading', raw: '## **bold** text' },
     ])
 
+    expect(editor.convertTextBlock(id, 'heading-3')).toBe(true)
+    expect(snapshot(editor)).toMatchObject([
+      { type: 'heading', raw: '### **bold** text' },
+    ])
+
     expect(editor.convertTextBlock(id, 'unordered-list')).toBe(true)
     expect(snapshot(editor)).toMatchObject([
       { type: 'list-item', raw: '- **bold** text' },
+    ])
+
+    expect(editor.convertTextBlock(id, 'ordered-list')).toBe(true)
+    expect(snapshot(editor)).toMatchObject([
+      { type: 'list-item', raw: '1. **bold** text' },
     ])
 
     expect(editor.convertTextBlock(id, 'blockquote')).toBe(true)
