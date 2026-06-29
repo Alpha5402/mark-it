@@ -1228,6 +1228,11 @@ export default function App() {
               label: `在第 ${tableRowIndex + 1} 行下方插入行`,
               disabled: !canEdit,
               action: () => runBlockCommand((editor) => editor.insertTableRowAfter(contextMenu.blockId, tableRowIndex))
+            },
+            {
+              label: `复制第 ${tableRowIndex + 1} 行到下方`,
+              disabled: !canEdit,
+              action: () => runBlockCommand((editor) => editor.duplicateTableRowAfter(contextMenu.blockId, tableRowIndex))
             }
           ] : [
             {
@@ -1241,6 +1246,11 @@ export default function App() {
               label: `在第 ${tableColumnIndex + 1} 列右侧插入列`,
               disabled: !canEdit,
               action: () => runBlockCommand((editor) => editor.insertTableColumnAfter(contextMenu.blockId, tableColumnIndex))
+            },
+            {
+              label: `复制第 ${tableColumnIndex + 1} 列到右侧`,
+              disabled: !canEdit,
+              action: () => runBlockCommand((editor) => editor.duplicateTableColumnAfter(contextMenu.blockId, tableColumnIndex))
             }
           ] : [
             {
