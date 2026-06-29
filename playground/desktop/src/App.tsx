@@ -880,8 +880,10 @@ export default function App() {
     if (contextMenu.kind === 'editor-block') {
       const canEdit = Boolean(editorRef.current);
       const canConvert = canEdit && isConvertibleTextBlock(contextMenu.blockType);
+      const isListItem = contextMenu.blockType === 'list-item';
       const isTaskList = contextMenu.blockType === 'list-item' && isTaskListRaw(contextMenu.raw);
       const isCheckedTask = isCheckedTaskRaw(contextMenu.raw);
+      const canOutdentListItem = isListItem && /^\s+/.test(contextMenu.raw);
       const codeLanguage = contextMenu.blockType === 'code-block'
         ? getCodeBlockLanguageFromRaw(contextMenu.raw)
         : '';
@@ -987,6 +989,20 @@ export default function App() {
             label: isCheckedTask ? '标记任务为未完成' : '标记任务为已完成',
             disabled: !canEdit,
             action: () => runBlockCommand((editor) => editor.toggleTaskListItem(contextMenu.blockId))
+          }
+        ] : []),
+        ...(isListItem ? [
+          {
+            label: '增加列表缩进',
+            icon: '⇥',
+            disabled: !canEdit,
+            action: () => runBlockCommand((editor) => editor.indentListItem(contextMenu.blockId))
+          },
+          {
+            label: '减少列表缩进',
+            icon: '⇤',
+            disabled: !canEdit || !canOutdentListItem,
+            action: () => runBlockCommand((editor) => editor.outdentListItem(contextMenu.blockId))
           }
         ] : []),
         ...(contextMenu.blockType === 'code-block' ? [
