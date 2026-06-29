@@ -216,6 +216,25 @@ describe('Editor block commands', () => {
       raw: '- [x] todo',
     })
 
+    expect(editor.convertTaskListItemToList(task.id)).toBe(true)
+    expect(snapshot(editor)[0]).toMatchObject({
+      type: 'list-item',
+      raw: '- todo',
+    })
+
+    expect(editor.convertListItemToTask(task.id)).toBe(true)
+    expect(snapshot(editor)[0]).toMatchObject({
+      type: 'list-item',
+      raw: '- [ ] todo',
+    })
+
+    expect(editor.convertTaskListItemToList(task.id)).toBe(true)
+    expect(editor.convertListItemToTask(task.id, true)).toBe(true)
+    expect(snapshot(editor)[0]).toMatchObject({
+      type: 'list-item',
+      raw: '- [x] todo',
+    })
+
     expect(editor.indentListItem(task.id)).toBe(true)
     expect(snapshot(editor)[0]).toMatchObject({
       type: 'list-item',
@@ -266,6 +285,8 @@ describe('Editor block commands', () => {
     const id = snapshot(editor)[0].id
 
     expect(editor.toggleTaskListItem(id)).toBe(false)
+    expect(editor.convertListItemToTask(id)).toBe(false)
+    expect(editor.convertTaskListItemToList(id)).toBe(false)
     expect(editor.indentListItem(id)).toBe(false)
     expect(editor.outdentListItem(id)).toBe(false)
     expect(editor.increaseBlockquoteLevel(id)).toBe(false)
