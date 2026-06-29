@@ -956,6 +956,16 @@ export default function App() {
             label: '在表格末尾追加列',
             disabled: !canEdit,
             action: () => runBlockCommand((editor) => editor.insertTableColumnAfter(contextMenu.blockId))
+          },
+          {
+            label: '删除表格末尾行',
+            disabled: !canEdit,
+            action: () => runBlockCommand((editor) => editor.deleteTableLastRow(contextMenu.blockId))
+          },
+          {
+            label: '删除表格末尾列',
+            disabled: !canEdit,
+            action: () => runBlockCommand((editor) => editor.deleteTableLastColumn(contextMenu.blockId))
           }
         ] : []),
         {
