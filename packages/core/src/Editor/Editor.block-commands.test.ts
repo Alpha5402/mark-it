@@ -259,6 +259,18 @@ describe('Editor block commands', () => {
       raw: '| a | b |\n| --- | --- |\n| 1 | 2 |\n|  |  |',
     })
 
+    expect(editor.insertTableRowAfter(table.id, 0)).toBe(true)
+    expect(snapshot(editor)[2]).toMatchObject({
+      type: 'table',
+      raw: '| a | b |\n| --- | --- |\n| 1 | 2 |\n|  |  |\n|  |  |',
+    })
+
+    expect(editor.deleteTableRow(table.id, 1)).toBe(true)
+    expect(snapshot(editor)[2]).toMatchObject({
+      type: 'table',
+      raw: '| a | b |\n| --- | --- |\n| 1 | 2 |\n|  |  |',
+    })
+
     expect(editor.insertTableColumnAfter(table.id)).toBe(true)
     expect(snapshot(editor)[2]).toMatchObject({
       type: 'table',
@@ -328,6 +340,7 @@ describe('Editor block commands', () => {
     expect(editor.insertTableRowAfter(id)).toBe(false)
     expect(editor.insertTableColumnAfter(id)).toBe(false)
     expect(editor.deleteTableLastRow(id)).toBe(false)
+    expect(editor.deleteTableRow(id, 0)).toBe(false)
     expect(editor.deleteTableLastColumn(id)).toBe(false)
     expect(editor.deleteTableColumn(id, 0)).toBe(false)
     expect(editor.setTableColumnAlignment(id, 0, 'left')).toBe(false)
@@ -447,6 +460,10 @@ describe('Editor block commands', () => {
     const table = snapshot(editor)[0]
 
     expect(editor.deleteTableLastRow(table.id)).toBe(false)
+    expect(editor.insertTableRowAfter(table.id, -2)).toBe(false)
+    expect(editor.insertTableRowAfter(table.id, 0)).toBe(false)
+    expect(editor.deleteTableRow(table.id, -1)).toBe(false)
+    expect(editor.deleteTableRow(table.id, 0)).toBe(false)
     expect(editor.deleteTableLastColumn(table.id)).toBe(false)
     expect(editor.insertTableColumnAfter(table.id, -1)).toBe(false)
     expect(editor.insertTableColumnAfter(table.id, 1)).toBe(false)

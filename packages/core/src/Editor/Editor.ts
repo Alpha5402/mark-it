@@ -1592,16 +1592,23 @@ export class Editor {
     return this.applyBlockRawCommand(blockId, lines.join('\n'), this.doc.prefixOffset(blockId))
   }
 
-  insertTableRowAfter(blockId: string): boolean {
+  insertTableRowAfter(blockId: string, rowIndex?: number): boolean {
     const block = this.doc.getBlock(blockId)
     if (!block || block.type !== 'table') return false
 
     const table = block as TableBlock
     const columnCount = Math.max(1, table.headers.length)
-    const rowRaw = `| ${Array.from({ length: columnCount }, () => '').join(' | ')} |`
-    const rawText = this.doc.getRawText(blockId)
-    const rowStartOffset = rawText.length + 1
-    const nextRawText = `${rawText}\n${rowRaw}`
+    const insertAfterIndex = rowIndex ?? table.rows.length - 1
+    if (!Number.isInteger(insertAfterIndex) || insertAfterIndex < -1 || insertAfterIndex >= table.rows.length) return false
+
+    const rows = table.rows.map(row => {
+      const normalizedRow = row.slice(0, columnCount)
+      while (normalizedRow.length < columnCount) normalizedRow.push('')
+      return normalizedRow
+    })
+    rows.splice(insertAfterIndex + 1, 0, Array.from({ length: columnCount }, () => ''))
+    const nextRawText = this.buildTableRaw(table.headers, table.aligns, rows)
+    const rowStartOffset = this.getTableRowRawOffset(table.headers, table.aligns, rows, insertAfterIndex + 1)
 
     return this.applyBlockRawCommand(blockId, nextRawText, rowStartOffset + 2)
   }
@@ -1637,12 +1644,25 @@ export class Editor {
     if (!block || block.type !== 'table') return false
 
     const table = block as TableBlock
+    return this.deleteTableRow(blockId, table.rows.length - 1)
+  }
+
+  deleteTableRow(blockId: string, rowIndex: number): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'table') return false
+
+    const table = block as TableBlock
     if (table.rows.length === 0) return false
+    if (!Number.isInteger(rowIndex) || rowIndex < 0 || rowIndex >= table.rows.length) return false
 
-    const rows = table.rows.slice(0, -1)
+    const rows = table.rows.filter((_, index) => index !== rowIndex)
     const nextRawText = this.buildTableRaw(table.headers, table.aligns, rows)
+    const focusRowIndex = Math.min(rowIndex, rows.length - 1)
+    const focusOffset = focusRowIndex >= 0
+      ? this.getTableRowRawOffset(table.headers, table.aligns, rows, focusRowIndex) + 2
+      : nextRawText.length
 
-    return this.applyBlockRawCommand(blockId, nextRawText, nextRawText.length)
+    return this.applyBlockRawCommand(blockId, nextRawText, focusOffset)
   }
 
   deleteTableLastColumn(blockId: string): boolean {
@@ -1910,6 +1930,24 @@ export class Editor {
     let offset = 2
     for (let index = 0; index < boundedIndex; index += 1) {
       offset += headers[index].length + 3
+    }
+    return offset
+  }
+
+  private getTableRowRawOffset(headers: string[], aligns: TableAlignmentTarget[], rows: string[][], rowIndex: number): number {
+    const boundedIndex = Math.max(0, Math.min(rowIndex, rows.length - 1))
+    const headerRow = `| ${headers.join(' | ')} |`
+    const separatorRow = `| ${headers.map((_, index) => {
+      const align = aligns[index] ?? 'default'
+      if (align === 'left') return ':---'
+      if (align === 'center') return ':---:'
+      if (align === 'right') return '---:'
+      return '---'
+    }).join(' | ')} |`
+    let offset = headerRow.length + 1 + separatorRow.length + 1
+    for (let index = 0; index < boundedIndex; index += 1) {
+      const row = rows[index]
+      offset += `| ${headers.map((_, columnIndex) => row[columnIndex] ?? '').join(' | ')} |`.length + 1
     }
     return offset
   }
