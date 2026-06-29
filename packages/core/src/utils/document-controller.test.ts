@@ -103,6 +103,35 @@ describe('DocumentController raw round-trip', () => {
     expect(doc.getTableCsv('missing')).toBeNull()
   })
 
+  test('exposes targeted table rows and columns as CSV', () => {
+    const doc = new DocumentController([
+      '| name | note | empty |',
+      '| --- | --- | --- |',
+      '| Ada | hello, world | |',
+      '| Bob | quote "ok" | tail |',
+      'plain',
+    ].join('\n'))
+    const [table, paragraph] = snapshot(doc)
+
+    expect(doc.getTableRowCsv(table.id, 0)).toBe('Ada,"hello, world",')
+    expect(doc.getTableRowCsv(table.id, 1)).toBe('Bob,"quote ""ok""",tail')
+    expect(doc.getTableColumnCsv(table.id, 1)).toBe([
+      'note',
+      '"hello, world"',
+      '"quote ""ok"""',
+    ].join('\n'))
+    expect(doc.getTableColumnCsv(table.id, 2)).toBe('empty\n\ntail')
+
+    expect(doc.getTableRowCsv(paragraph.id, 0)).toBeNull()
+    expect(doc.getTableColumnCsv(paragraph.id, 0)).toBeNull()
+    expect(doc.getTableRowCsv(table.id, -1)).toBeNull()
+    expect(doc.getTableRowCsv(table.id, 2)).toBeNull()
+    expect(doc.getTableColumnCsv(table.id, -1)).toBeNull()
+    expect(doc.getTableColumnCsv(table.id, 3)).toBeNull()
+    expect(doc.getTableRowCsv('missing', 0)).toBeNull()
+    expect(doc.getTableColumnCsv('missing', 0)).toBeNull()
+  })
+
   test('keeps whole-line single-line $$ spans as paragraph text', () => {
     const doc = new DocumentController('before\n$$\\frac{a}{b}$$\nafter')
 

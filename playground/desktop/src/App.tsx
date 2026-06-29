@@ -1068,6 +1068,18 @@ export default function App() {
         if (csv === null || csv === undefined) return;
         void copyText(csv);
       };
+      const copyTableRowCsv = (rowIndex: number) => {
+        const surface = editorRef.current ?? rendererRef.current;
+        const csv = surface?.doc.getTableRowCsv(contextMenu.blockId, rowIndex);
+        if (csv === null || csv === undefined) return;
+        void copyText(csv);
+      };
+      const copyTableColumnCsv = (columnIndex: number) => {
+        const surface = editorRef.current ?? rendererRef.current;
+        const csv = surface?.doc.getTableColumnCsv(contextMenu.blockId, columnIndex);
+        if (csv === null || csv === undefined) return;
+        void copyText(csv);
+      };
       return [
         { label: blockTypeLabel(contextMenu.blockType), hint: '编辑区', disabled: true },
         {
@@ -1208,6 +1220,20 @@ export default function App() {
             disabled: false,
             action: copyTableCsv
           },
+          ...(typeof tableRowIndex === 'number' ? [
+            {
+              label: `复制第 ${tableRowIndex + 1} 行 CSV`,
+              disabled: false,
+              action: () => copyTableRowCsv(tableRowIndex)
+            }
+          ] : []),
+          ...(typeof tableColumnIndex === 'number' ? [
+            {
+              label: `复制第 ${tableColumnIndex + 1} 列 CSV`,
+              disabled: false,
+              action: () => copyTableColumnCsv(tableColumnIndex)
+            }
+          ] : []),
           ...(typeof tableColumnIndex === 'number' ? [
             {
               label: `设置第 ${tableColumnIndex + 1} 列对齐`,

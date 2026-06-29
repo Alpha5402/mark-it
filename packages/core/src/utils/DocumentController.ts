@@ -171,6 +171,31 @@ export class DocumentController {
       .join('\n')
   }
 
+  getTableRowCsv(blockId: string, rowIndex: number): string | null {
+    const block = this.blocks.get(blockId)
+    if (!block || block.type !== 'table') return null
+    if (!Number.isInteger(rowIndex)) return null
+
+    const table = block as TableBlock
+    if (rowIndex < 0 || rowIndex >= table.rows.length) return null
+
+    const row = table.rows[rowIndex]
+    return table.headers.map((_, index) => toCsvCell(row[index] ?? '')).join(',')
+  }
+
+  getTableColumnCsv(blockId: string, columnIndex: number): string | null {
+    const block = this.blocks.get(blockId)
+    if (!block || block.type !== 'table') return null
+    if (!Number.isInteger(columnIndex)) return null
+
+    const table = block as TableBlock
+    if (columnIndex < 0 || columnIndex >= table.headers.length) return null
+
+    return [table.headers, ...table.rows]
+      .map(row => toCsvCell(row[columnIndex] ?? ''))
+      .join('\n')
+  }
+
   /**
    * 将 inline model 数组重建为原始 Markdown 文本（包含标记符如 **、~~、== 等）
    */
