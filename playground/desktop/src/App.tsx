@@ -1135,6 +1135,11 @@ export default function App() {
           children: createConvertItems()
         },
         { label: '', separator: true },
+        {
+          label: '复制当前块到下方',
+          disabled: !canEdit,
+          action: () => runBlockCommand((editor) => editor.duplicateBlockAfter(contextMenu.blockId))
+        },
         { label: '复制当前块 Markdown', action: () => copyText(contextMenu.raw) },
         { label: '复制全文 Markdown', action: () => activeTab && copyText(activeTab.content) },
         {

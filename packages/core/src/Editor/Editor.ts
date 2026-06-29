@@ -1370,6 +1370,20 @@ export class Editor {
     return true
   }
 
+  duplicateBlockAfter(blockId: string): boolean {
+    const anchor = this.doc.getBlock(blockId)
+    if (!anchor) return false
+
+    const rawText = this.doc.getRawText(blockId)
+    const cursorInfo = this.getCurrentCursorInfo(this.controller['captureSelection']?.() ?? null)
+    this.history.pushSnapshot(this.doc.blocks, cursorInfo)
+
+    const inserted = this.doc.createBlockFromRawText(rawText, blockId)
+    this.rebuildAndFocusBlock(inserted.id, this.doc.prefixOffset(inserted.id))
+    this.notifyContentChange()
+    return true
+  }
+
   insertTemplateBlockAfter(blockId: string, template: BlockTemplateTarget): boolean {
     const anchor = this.doc.getBlock(blockId)
     if (!anchor) return false
