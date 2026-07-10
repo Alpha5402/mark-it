@@ -670,44 +670,50 @@ export class Editor {
             return
           }
 
-          // 非空列表项按 Enter → 拆分，新行继承列表结构（缩进 + marker）
-          const beforeRaw = rawText.slice(0, rawOffset)
-          const afterContent = rawText.slice(rawOffset)
+          // marker 内部按 Enter 必须遵循可见 raw 位置，不能自动补一个列表前缀。
+          // 只有光标已到正文起点/正文内时，才使用“继续下一项”的语义。
+          if (rawOffset >= prefixLen) {
+            // 非空列表项按 Enter → 拆分，新行继承列表结构（缩进 + marker）
+            const beforeRaw = rawText.slice(0, rawOffset)
+            const afterContent = rawText.slice(rawOffset)
 
-          this.dom.collapseBlock(block)
-          this.dom.forceResetExpanded()
+            this.dom.collapseBlock(block)
+            this.dom.forceResetExpanded()
 
-          // 更新当前 block（前半部分）
-          const effect = this.doc.reconcileFromRawText(block.id, beforeRaw.trim() === '' ? '' : beforeRaw)
-          if (!effect) return
-          if (effect.kind === 'code-block-degrade') return
-          const updatedBlock = effect.kind === 'block-transform' ? effect.to : effect.block
-          this.dom.replaceBlock(block, updatedBlock)
+            // 更新当前 block（前半部分）
+            const effect = this.doc.reconcileFromRawText(block.id, beforeRaw.trim() === '' ? '' : beforeRaw)
+            if (!effect) return
+            if (effect.kind === 'code-block-degrade') return
+            const updatedBlock = effect.kind === 'block-transform' ? effect.to : effect.block
+            this.dom.replaceBlock(block, updatedBlock)
 
-          // 构造新行的 raw text：继承缩进 + marker 前缀 + 光标后的内容
-          const indent = (currentBlock.nesting ?? 0) > 0 ? ' '.repeat(currentBlock.nesting!) : ''
-          let newMarker: string
-          if (listItem.style.ordered) {
-            // 有序列表：自动递增序号
-            const orderNum = parseInt(listItem.style.order) || 1
-            newMarker = `${orderNum + 1}. `
-          } else {
-            newMarker = '- '
+            // 构造新行的 raw text：继承缩进 + marker 前缀 + 光标后的内容
+            const indent = (currentBlock.nesting ?? 0) > 0 ? ' '.repeat(currentBlock.nesting!) : ''
+            let newMarker: string
+            if (listItem.style.ordered) {
+              // 有序列表：自动递增序号
+              const orderNum = parseInt(listItem.style.order) || 1
+              newMarker = `${orderNum + 1}. `
+            } else if ('task' in listItem.style && listItem.style.task) {
+              newMarker = `${listItem.style.bullet ?? '-'} [ ]${listItem.style.markerSpacing ?? ' '}`
+            } else {
+              newMarker = `${listItem.style.bullet ?? '-'} `
+            }
+            const newLineRaw = indent + newMarker + afterContent
+
+            const newBlock = this.doc.createBlockFromRawText(newLineRaw, updatedBlock.id)
+            this.dom.insertBlock(updatedBlock, newBlock)
+
+            // 展开新 block 并将光标定位到内容开头（prefix 之后）
+            this.dom.renderBlockExpanded(newBlock)
+            const newPrefixOffset = this.doc.prefixOffset(newBlock.id)
+            this.dom.setCursorByRawOffset(newBlock.id, newPrefixOffset)
+
+            this.dom.clearHighlight()
+            this.scheduler.highlightBlock(newBlock.id, BlockVisualState.active)
+            this.skipNextSelectionAction = true
+            return
           }
-          const newLineRaw = indent + newMarker + afterContent
-
-          const newBlock = this.doc.createBlockFromRawText(newLineRaw, updatedBlock.id)
-          this.dom.insertBlock(updatedBlock, newBlock)
-
-          // 展开新 block 并将光标定位到内容开头（prefix 之后）
-          this.dom.renderBlockExpanded(newBlock)
-          const newPrefixOffset = this.doc.prefixOffset(newBlock.id)
-          this.dom.setCursorByRawOffset(newBlock.id, newPrefixOffset)
-
-          this.dom.clearHighlight()
-          this.scheduler.highlightBlock(newBlock.id, BlockVisualState.active)
-          this.skipNextSelectionAction = true
-          return
         }
 
         // 展开模式：用 raw offset 切割 raw text，对两半分别重新解析
