@@ -57,8 +57,8 @@ describe('parseLine', () => {
     const checked = parseLine(tokenizeByLine('- [x] done')) as any
 
     expect(unchecked.type).toBe('list-item')
-    expect(unchecked.style).toEqual({ ordered: false, task: true, checked: false })
-    expect(checked.style).toEqual({ ordered: false, task: true, checked: true })
+    expect(unchecked.style).toEqual({ ordered: false, task: true, checked: false, checkedMarker: undefined, markerSpacing: ' ' })
+    expect(checked.style).toEqual({ ordered: false, task: true, checked: true, checkedMarker: 'x', markerSpacing: ' ' })
   })
 
   test('parses code block language, fence, content, and empty content count', () => {
@@ -149,5 +149,15 @@ describe('inlineParse', () => {
       offset: 0,
       dirty: false,
     })
+  })
+
+  test('preserves nested marker transitions without duplicating outer markers', () => {
+    const parsed = inlineParse('**bold *italic***')
+    const texts = parsed.inline.filter(i => i.type === 'text') as TextInline[]
+
+    expect(texts.map(t => [t.text, t.marks, t.markers])).toEqual([
+      ['bold ', INLINE_FLAG.BOLD, { prefix: '**', suffix: '' }],
+      ['italic', INLINE_FLAG.BOLD | INLINE_FLAG.ITALIC, { prefix: '*', suffix: '***' }],
+    ])
   })
 })
