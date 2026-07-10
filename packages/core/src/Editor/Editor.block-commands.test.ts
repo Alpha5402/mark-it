@@ -99,6 +99,22 @@ describe('Editor block commands', () => {
     editor.destroy()
   })
 
+  test('inserts common markdown module templates before a target block', () => {
+    const editor = createEditor('anchor')
+    const anchorId = snapshot(editor)[0].id
+
+    expect(editor.insertTemplateBlockBefore(anchorId, 'code-block')).toBe(true)
+    expect(editor.insertTemplateBlockBefore(anchorId, 'table')).toBe(true)
+
+    expect(snapshot(editor)).toMatchObject([
+      { type: 'code-block', raw: '```\n\n```' },
+      { type: 'table', raw: '|  |  |\n| --- | --- |\n|  |  |' },
+      { type: 'paragraph', raw: 'anchor' },
+    ])
+
+    editor.destroy()
+  })
+
   test('runs module-specific commands through markdown raw text', () => {
     const editor = createEditor('- [ ] todo\n```js\nconst x = 1\n```\n| a | b |\n| --- | --- |\n| 1 | 2 |')
     const [task, code, table] = snapshot(editor)

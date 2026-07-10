@@ -30,8 +30,11 @@ type ContextMenuPayload = ContextMenuState extends infer Menu
 type ContextMenuItem = {
   label: string;
   hint?: string;
+  icon?: string;
   disabled?: boolean;
   danger?: boolean;
+  separator?: boolean;
+  children?: ContextMenuItem[];
   action?: () => void | Promise<void>;
 };
 
@@ -327,17 +330,24 @@ export default function App() {
     if (!contextMenu) return;
 
     const close = () => closeContextMenu();
+    const closeWhenOutsideMenu = (event: PointerEvent | MouseEvent) => {
+      const target = event.target as Element | null;
+      if (target?.closest('.context-menu')) return;
+      closeContextMenu();
+    };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') closeContextMenu();
     };
 
-    window.addEventListener('click', close);
+    document.addEventListener('pointerdown', closeWhenOutsideMenu, true);
+    document.addEventListener('contextmenu', closeWhenOutsideMenu, true);
     window.addEventListener('resize', close);
     window.addEventListener('scroll', close, true);
     window.addEventListener('keydown', onKeyDown);
 
     return () => {
-      window.removeEventListener('click', close);
+      document.removeEventListener('pointerdown', closeWhenOutsideMenu, true);
+      document.removeEventListener('contextmenu', closeWhenOutsideMenu, true);
       window.removeEventListener('resize', close);
       window.removeEventListener('scroll', close, true);
       window.removeEventListener('keydown', onKeyDown);
@@ -825,12 +835,15 @@ export default function App() {
       const expanded = expandedPaths.has(contextMenu.node.path);
       return [
         { label: contextMenu.node.name, hint: '文件夹', disabled: true },
+        { label: '', separator: true },
         { label: '新建笔记', hint: '.md', action: () => createMarkdownFileAt(contextMenu.node) },
         { label: '新建文件夹', action: () => createDirectoryAt(contextMenu.node) },
+        { label: '', separator: true },
         {
           label: expanded ? '收起文件夹' : '展开文件夹',
           action: () => toggleDirectory(contextMenu.node.path)
         },
+        { label: '', separator: true },
         { label: '复制路径', action: () => copyText(contextMenu.node.path) },
         { label: '在 Finder 中显示', action: () => revealPath(contextMenu.node.path) }
       ];
@@ -839,8 +852,10 @@ export default function App() {
     if (contextMenu.kind === 'tree-file') {
       return [
         { label: contextMenu.node.name, hint: 'Markdown', disabled: true },
+        { label: '', separator: true },
         { label: '打开', action: () => selectTreeFile(contextMenu.node) },
         { label: '新建同级笔记', hint: '.md', action: () => createMarkdownFileAt(contextMenu.node) },
+        { label: '', separator: true },
         { label: '复制路径', action: () => copyText(contextMenu.node.path) },
         { label: '在 Finder 中显示', action: () => revealPath(contextMenu.node.path) }
       ];
@@ -876,6 +891,22 @@ export default function App() {
         command(editor);
       };
       const setCodeLanguage = (language: string) => runBlockCommand((editor) => editor.setCodeBlockLanguage(contextMenu.blockId, language));
+      const createInsertItems = (placement: 'before' | 'after'): ContextMenuItem[] => {
+        const runInsert = (template: Parameters<Editor['insertTemplateBlockAfter']>[1]) => {
+          runBlockCommand((editor) => placement === 'before'
+            ? editor.insertTemplateBlockBefore(contextMenu.blockId, template)
+            : editor.insertTemplateBlockAfter(contextMenu.blockId, template)
+          );
+        };
+
+        return [
+          { label: '段落', icon: '¶', disabled: !canEdit, action: () => runInsert('paragraph') },
+          { label: '任务', icon: '☑', disabled: !canEdit, action: () => runInsert('task-list') },
+          { label: '代码', icon: '</>', disabled: !canEdit, action: () => runInsert('code-block') },
+          { label: '公式', icon: 'Σ', disabled: !canEdit, action: () => runInsert('math-block') },
+          { label: '表格', icon: '⊞', disabled: !canEdit, action: () => runInsert('table') }
+        ];
+      };
       const copyCodeBlockContent = () => {
         const surface = editorRef.current ?? rendererRef.current;
         const code = surface?.doc.getCodeBlockContent(contextMenu.blockId);
@@ -891,35 +922,16 @@ export default function App() {
       return [
         { label: blockTypeLabel(contextMenu.blockType), hint: '编辑区', disabled: true },
         {
-          label: '在上方插入段落',
+          label: '上方插入',
           disabled: !canEdit,
-          action: () => runBlockCommand((editor) => editor.insertBlankBlockBefore(contextMenu.blockId))
+          children: createInsertItems('before')
         },
         {
-          label: '在下方插入段落',
+          label: '下方插入',
           disabled: !canEdit,
-          action: () => runBlockCommand((editor) => editor.insertBlankBlockAfter(contextMenu.blockId))
+          children: createInsertItems('after')
         },
-        {
-          label: '在下方插入任务列表',
-          disabled: !canEdit,
-          action: () => runBlockCommand((editor) => editor.insertTemplateBlockAfter(contextMenu.blockId, 'task-list'))
-        },
-        {
-          label: '在下方插入代码块',
-          disabled: !canEdit,
-          action: () => runBlockCommand((editor) => editor.insertTemplateBlockAfter(contextMenu.blockId, 'code-block'))
-        },
-        {
-          label: '在下方插入公式块',
-          disabled: !canEdit,
-          action: () => runBlockCommand((editor) => editor.insertTemplateBlockAfter(contextMenu.blockId, 'math-block'))
-        },
-        {
-          label: '在下方插入表格',
-          disabled: !canEdit,
-          action: () => runBlockCommand((editor) => editor.insertTemplateBlockAfter(contextMenu.blockId, 'table'))
-        },
+        { label: '', separator: true },
         ...(isTaskList ? [
           {
             label: isCheckedTask ? '标记任务为未完成' : '标记任务为已完成',
@@ -1091,6 +1103,47 @@ export default function App() {
   const renderContextMenu = () => {
     if (!contextMenu || contextMenuItems.length === 0) return null;
 
+    const renderMenuItem = (item: ContextMenuItem, index: number, depth = 0): React.ReactNode => {
+      if (item.separator) {
+        return <div key={`separator-${depth}-${index}`} className="context-menu-separator" role="separator" />;
+      }
+
+      const hasChildren = Boolean(item.children?.length);
+      const button = (
+        <button
+          key={`${item.label}-${depth}-${index}`}
+          type="button"
+          role="menuitem"
+          aria-haspopup={hasChildren ? 'menu' : undefined}
+          className={`${item.disabled ? 'disabled' : ''} ${item.danger ? 'danger' : ''} ${hasChildren ? 'has-submenu' : ''}`}
+          disabled={item.disabled}
+          onClick={async (event) => {
+            if (hasChildren) {
+              event.preventDefault();
+              return;
+            }
+            await item.action?.();
+            closeContextMenu();
+          }}
+        >
+          <span className="context-menu-icon" aria-hidden="true">{item.icon ?? ''}</span>
+          <span>{item.label}</span>
+          {hasChildren ? <small>›</small> : item.hint && <small>{item.hint}</small>}
+        </button>
+      );
+
+      if (!hasChildren) return button;
+
+      return (
+        <div key={`${item.label}-${depth}-${index}`} className="context-menu-submenu">
+          {button}
+          <div className="context-menu context-menu-nested" role="menu">
+            {item.children!.map((child, childIndex) => renderMenuItem(child, childIndex, depth + 1))}
+          </div>
+        </div>
+      );
+    };
+
     return (
       <div
         className="context-menu"
@@ -1099,22 +1152,7 @@ export default function App() {
         onClick={(event) => event.stopPropagation()}
         onContextMenu={(event) => event.preventDefault()}
       >
-        {contextMenuItems.map((item, index) => (
-          <button
-            key={`${item.label}-${index}`}
-            type="button"
-            role="menuitem"
-            className={`${item.disabled ? 'disabled' : ''} ${item.danger ? 'danger' : ''}`}
-            disabled={item.disabled}
-            onClick={async () => {
-              await item.action?.();
-              closeContextMenu();
-            }}
-          >
-            <span>{item.label}</span>
-            {item.hint && <small>{item.hint}</small>}
-          </button>
-        ))}
+        {contextMenuItems.map((item, index) => renderMenuItem(item, index))}
       </div>
     );
   };

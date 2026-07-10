@@ -1386,6 +1386,24 @@ export class Editor {
     return true
   }
 
+  insertTemplateBlockBefore(blockId: string, template: BlockTemplateTarget): boolean {
+    const anchor = this.doc.getBlock(blockId)
+    if (!anchor) return false
+
+    const details = this.getBlockTemplateDetails(template)
+    if (!details) return false
+
+    const cursorInfo = this.getCurrentCursorInfo(this.controller['captureSelection']?.() ?? null)
+    this.history.pushSnapshot(this.doc.blocks, cursorInfo)
+
+    const inserted = this.doc.createBlockFromRawTextBefore(details.rawText, blockId)
+    if (!inserted) return false
+
+    this.rebuildAndFocusBlock(inserted.id, details.cursorRawOffset)
+    this.notifyContentChange()
+    return true
+  }
+
   toggleTaskListItem(blockId: string): boolean {
     const block = this.doc.getBlock(blockId)
     if (!block || block.type !== 'list-item') return false
