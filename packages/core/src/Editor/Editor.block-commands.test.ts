@@ -127,6 +127,18 @@ describe('Editor block commands', () => {
       raw: '| a | b |  |\n| --- | --- | --- |\n| 1 | 2 |  |\n|  |  |  |',
     })
 
+    expect(editor.deleteTableLastRow(table.id)).toBe(true)
+    expect(snapshot(editor)[2]).toMatchObject({
+      type: 'table',
+      raw: '| a | b |  |\n| --- | --- | --- |\n| 1 | 2 |  |',
+    })
+
+    expect(editor.deleteTableLastColumn(table.id)).toBe(true)
+    expect(snapshot(editor)[2]).toMatchObject({
+      type: 'table',
+      raw: '| a | b |\n| --- | --- |\n| 1 | 2 |',
+    })
+
     editor.destroy()
   })
 
@@ -138,8 +150,23 @@ describe('Editor block commands', () => {
     expect(editor.setCodeBlockLanguage(id, 'ts')).toBe(false)
     expect(editor.insertTableRowAfter(id)).toBe(false)
     expect(editor.insertTableColumnAfter(id)).toBe(false)
+    expect(editor.deleteTableLastRow(id)).toBe(false)
+    expect(editor.deleteTableLastColumn(id)).toBe(false)
     expect(snapshot(editor)).toMatchObject([
       { type: 'paragraph', raw: 'paragraph' },
+    ])
+
+    editor.destroy()
+  })
+
+  test('preserves minimum table shape for destructive table commands', () => {
+    const editor = createEditor('| only |\n| --- |')
+    const table = snapshot(editor)[0]
+
+    expect(editor.deleteTableLastRow(table.id)).toBe(false)
+    expect(editor.deleteTableLastColumn(table.id)).toBe(false)
+    expect(snapshot(editor)).toMatchObject([
+      { type: 'table', raw: '| only |\n| --- |' },
     ])
 
     editor.destroy()
