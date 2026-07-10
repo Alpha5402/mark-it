@@ -84,6 +84,7 @@ export interface ListItemBlock extends BlockModel {
     ordered: false
     task: true
     checked: boolean
+    markerSpacing?: string
   }
 }
 
@@ -91,6 +92,7 @@ export interface BlockquoteBlock extends BlockModel {
   id: string
   type: 'blockquote'
   quoteDepth: number  // 引用嵌套层级，> 为 1，>> 为 2
+  quoteSpacing?: string // marker 与内容之间的原始空白，保留 `>text` / `> text`
 }
 
 export interface CodeBlock extends BlockModel {
@@ -147,6 +149,7 @@ export interface FootnoteDefBlock extends BlockModel {
   id: string
   type: 'paragraph'   // 复用 paragraph 类型，通过 footnoteId 区分
   footnoteId: string  // 脚注标识符
+  footnoteSpacing?: string // 冒号与正文之间的原始空白
 }
 
 export interface DivideUnit {

@@ -501,28 +501,32 @@ export function parseLine(line: RawLine): BlockModel {
   }
 
   // 如果是脚注定义行 [^id]: content
-  const footnoteDefMatch = raw.match(/^\[\^([\w-]+)\]:\s*(.*)$/)
+  const footnoteDefMatch = raw.match(/^\[\^([\w-]+)\]:(\s*)(.*)$/)
   if (footnoteDefMatch) {
     const footnoteId = footnoteDefMatch[1]
-    const content = footnoteDefMatch[2]
+    const footnoteSpacing = footnoteDefMatch[2]
+    const content = footnoteDefMatch[3]
     const result: FootnoteDefBlock = {
       id: line.id,
       type: 'paragraph',
       footnoteId,
+      footnoteSpacing,
       inline: inlineParse(content).inline,
     }
     return result
   }
 
   // 如果是引用
-  if (/^(>+)\s?(.*)$/.test(raw)) {
-    const match = raw.match(/^(>+)\s?(.*)$/)!
+  if (/^(>+)(\s?)(.*)$/.test(raw)) {
+    const match = raw.match(/^(>+)(\s?)(.*)$/)!
     const depth = match[1].length
-    const content = match[2]
+    const spacing = match[2]
+    const content = match[3]
     return {
       id: line.id,
       type: 'blockquote',
       quoteDepth: depth,
+      quoteSpacing: spacing,
       inline: inlineParse(content).inline,
     } as BlockquoteBlock
   }
@@ -533,7 +537,7 @@ export function parseLine(line: RawLine): BlockModel {
     const afterMarker = raw.slice(match[0].length)
 
     // 检测任务列表：- [ ] 或 - [x] 或 - [X]
-    const taskMatch = afterMarker.match(/^\[([ xX])\]\s?/)
+    const taskMatch = afterMarker.match(/^\[([ xX])\](\s?)/)
     if (taskMatch) {
       const checked = taskMatch[1] !== ' '
       const content = afterMarker.slice(taskMatch[0].length)
@@ -545,7 +549,8 @@ export function parseLine(line: RawLine): BlockModel {
         style: {
           ordered: false,
           task: true,
-          checked
+          checked,
+          markerSpacing: taskMatch[2]
         }
       } as ListItemBlock
     }
