@@ -866,7 +866,8 @@ a {
 }
 
 .topbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr) 170px;
   align-items: center;
   gap: 14px;
   height: 58px;
@@ -884,8 +885,11 @@ a {
 }
 
 .topbar .document-heading {
-  flex: 1;
   min-width: 0;
+}
+
+.topbar-balance {
+  width: 170px;
 }
 
 .format-orb {
@@ -1065,7 +1069,7 @@ a {
 .mode-switch {
   display: inline-grid;
   grid-template-columns: 1fr 1fr;
-  width: 154px;
+  width: 170px;
   padding: 3px;
   border: 1px solid var(--liquid-border);
   border-radius: 10px;
@@ -1076,10 +1080,19 @@ a {
 }
 
 .mode-switch button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   height: 30px;
   border-radius: 8px;
   color: #526071;
   background: transparent;
+}
+
+.mode-switch button svg {
+  width: 16px;
+  height: 16px;
 }
 
 .mode-switch button:disabled {

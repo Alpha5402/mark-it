@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Editor, Renderer } from 'mark-it-core';
-import { FileAddIcon, FileIcon, FolderAddIcon } from 'tdesign-icons-react';
+import { BrowseIcon, EditIcon, FileAddIcon, FileIcon, FolderAddIcon } from 'tdesign-icons-react';
 import logoUrl from './logo.svg';
 
 type Mode = 'edit' | 'read';
@@ -774,7 +774,7 @@ export default function App() {
       path: normalizedPath,
       name: file.name,
       content: file.content,
-      savedAtLabel: '等待自动保存',
+      savedAtLabel: '已打开',
       isDirty: false
     };
 
@@ -1893,24 +1893,31 @@ export default function App() {
             <button
               type="button"
               className={mode === 'edit' ? 'active' : ''}
+              aria-pressed={mode === 'edit'}
+              title="编辑文档"
               disabled={!hasOpenDocument}
               onClick={() => setMode('edit')}
             >
-              编辑
+              <EditIcon />
+              <span>编辑</span>
             </button>
             <button
               type="button"
               className={mode === 'read' ? 'active' : ''}
+              aria-pressed={mode === 'read'}
+              title="阅读预览"
               disabled={!hasOpenDocument}
               onClick={() => setMode('read')}
             >
-              阅读
+              <BrowseIcon />
+              <span>阅读</span>
             </button>
           </div>
           <div className="document-heading" title={activeTab?.name ?? '未打开文档'}>
             <span>{activeTab ? `${activeTab.name.replace(/\.md$/i, '')}${activeTab.isDirty ? ' *' : ''}` : '未打开文档'}</span>
             <small>{activeTab?.savedAtLabel ?? '等待打开文档'}</small>
           </div>
+          <div className="topbar-balance" aria-hidden="true" />
         </header>
         {hasOpenDocument ? (
           <div className="paper-stage">
