@@ -470,6 +470,37 @@ export class DocumentController {
     return ids[idx + 1]
   }
 
+  moveBlock(blockId: string, direction: 'up' | 'down'): boolean {
+    const entries = Array.from(this.blocks.entries())
+    const idx = entries.findIndex(([id]) => id === blockId)
+    if (idx === -1) return false
+
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1
+    if (targetIdx < 0 || targetIdx >= entries.length) return false
+
+    const nextEntries = [...entries]
+    const [entry] = nextEntries.splice(idx, 1)
+    nextEntries.splice(targetIdx, 0, entry)
+    this.blocks = new Map(nextEntries)
+    return true
+  }
+
+  deleteBlock(blockId: string): { deletedBlockId: string; focusBlockId: string } | null {
+    const entries = Array.from(this.blocks.entries())
+    const idx = entries.findIndex(([id]) => id === blockId)
+    if (idx === -1) return null
+
+    if (entries.length === 1) {
+      this.blocks.delete(blockId)
+      const blank = this.createBlockFromRawText('')
+      return { deletedBlockId: blockId, focusBlockId: blank.id }
+    }
+
+    const focusEntry = entries[idx + 1] ?? entries[idx - 1]
+    this.blocks.delete(blockId)
+    return { deletedBlockId: blockId, focusBlockId: focusEntry[0] }
+  }
+
   /**
    * 将当前 block 的内容合并到前一个 block 末尾，然后删除当前 block
    * 返回合并后的 block 和光标应该定位的语义偏移量

@@ -1370,6 +1370,43 @@ export class Editor {
     return true
   }
 
+  duplicateBlockAfter(blockId: string): boolean {
+    const anchor = this.doc.getBlock(blockId)
+    if (!anchor) return false
+
+    const rawText = this.doc.getRawText(blockId)
+    const cursorInfo = this.getCurrentCursorInfo(this.controller['captureSelection']?.() ?? null)
+    this.history.pushSnapshot(this.doc.blocks, cursorInfo)
+
+    const inserted = this.doc.createBlockFromRawText(rawText, blockId)
+    this.rebuildAndFocusBlock(inserted.id, this.doc.prefixOffset(inserted.id))
+    this.notifyContentChange()
+    return true
+  }
+
+  deleteBlock(blockId: string): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block) return false
+
+    const cursorInfo = this.getCurrentCursorInfo(this.controller['captureSelection']?.() ?? null)
+    this.history.pushSnapshot(this.doc.blocks, cursorInfo)
+
+    const result = this.doc.deleteBlock(blockId)
+    if (!result) return false
+
+    this.rebuildAndFocusBlock(result.focusBlockId, this.doc.prefixOffset(result.focusBlockId))
+    this.notifyContentChange()
+    return true
+  }
+
+  moveBlockUp(blockId: string): boolean {
+    return this.moveBlock(blockId, 'up')
+  }
+
+  moveBlockDown(blockId: string): boolean {
+    return this.moveBlock(blockId, 'down')
+  }
+
   insertTemplateBlockAfter(blockId: string, template: BlockTemplateTarget): boolean {
     const anchor = this.doc.getBlock(blockId)
     if (!anchor) return false
@@ -1419,6 +1456,36 @@ export class Editor {
     if (nextRawText === rawText) return false
 
     return this.applyBlockRawCommand(blockId, nextRawText, this.doc.prefixOffset(blockId))
+  }
+
+  convertListItemToTask(blockId: string, checked = false): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'list-item') return false
+
+    const listItem = block as ListItemBlock
+    if ('task' in listItem.style && listItem.style.task) return false
+
+    const contentRaw = this.getConvertibleBlockContentRaw(blockId)
+    if (contentRaw === null) return false
+
+    const indent = ' '.repeat(block.nesting ?? 0)
+    const nextRawText = `${indent}- [${checked ? 'x' : ' '}] ${contentRaw}`
+    return this.applyBlockRawCommand(blockId, nextRawText, this.doc.prefixOffset(blockId) + 4)
+  }
+
+  convertTaskListItemToList(blockId: string): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'list-item') return false
+
+    const listItem = block as ListItemBlock
+    if (!('task' in listItem.style) || !listItem.style.task) return false
+
+    const contentRaw = this.getConvertibleBlockContentRaw(blockId)
+    if (contentRaw === null) return false
+
+    const indent = ' '.repeat(block.nesting ?? 0)
+    const nextRawText = `${indent}- ${contentRaw}`
+    return this.applyBlockRawCommand(blockId, nextRawText, this.doc.prefixOffset(blockId) - 4)
   }
 
   indentListItem(blockId: string): boolean {
@@ -1617,6 +1684,26 @@ export class Editor {
 
     const targetBlock = effect.kind === 'block-transform' ? effect.to : effect.block
     this.rebuildAndFocusBlock(targetBlock.id, cursorRawOffset)
+    this.notifyContentChange()
+    return true
+  }
+
+  private moveBlock(blockId: string, direction: 'up' | 'down'): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block) return false
+
+    const targetId = direction === 'up'
+      ? this.doc.getPreviousBlockId(blockId)
+      : this.doc.getNextBlockId(blockId)
+    if (!targetId) return false
+
+    const cursorInfo = this.getCurrentCursorInfo(this.controller['captureSelection']?.() ?? null)
+    this.history.pushSnapshot(this.doc.blocks, cursorInfo)
+
+    if (!this.doc.moveBlock(blockId, direction)) return false
+
+    this.dom.fullRebuild(Array.from(this.doc.getBlocks().values()))
+    this.rebuildAndFocusBlock(blockId, this.doc.prefixOffset(blockId))
     this.notifyContentChange()
     return true
   }

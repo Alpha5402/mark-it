@@ -885,6 +885,7 @@ export default function App() {
 
     if (contextMenu.kind === 'editor-block') {
       const canEdit = Boolean(editorRef.current);
+      const surface = editorRef.current ?? rendererRef.current;
       const canConvert = canEdit && isConvertibleTextBlock(contextMenu.blockType);
       const isHeading = contextMenu.blockType === 'heading';
       const isListItem = contextMenu.blockType === 'list-item';
@@ -900,6 +901,8 @@ export default function App() {
       const codeFence = contextMenu.blockType === 'code-block'
         ? getCodeBlockFenceFromRaw(contextMenu.raw)
         : '```';
+      const canMoveBlockUp = Boolean(surface?.doc.getPreviousBlockId(contextMenu.blockId));
+      const canMoveBlockDown = Boolean(surface?.doc.getNextBlockId(contextMenu.blockId));
       const runBlockCommand = (command: (editor: Editor) => boolean) => {
         const editor = editorRef.current;
         if (!editor) return;
@@ -1003,9 +1006,26 @@ export default function App() {
             label: isCheckedTask ? '标记任务为未完成' : '标记任务为已完成',
             disabled: !canEdit,
             action: () => runBlockCommand((editor) => editor.toggleTaskListItem(contextMenu.blockId))
+          },
+          {
+            label: '转为普通列表',
+            disabled: !canEdit,
+            action: () => runBlockCommand((editor) => editor.convertTaskListItemToList(contextMenu.blockId))
           }
         ] : []),
         ...(isListItem ? [
+          ...(!isTaskList ? [
+            {
+              label: '转为待办列表',
+              disabled: !canEdit,
+              action: () => runBlockCommand((editor) => editor.convertListItemToTask(contextMenu.blockId))
+            },
+            {
+              label: '转为已完成待办',
+              disabled: !canEdit,
+              action: () => runBlockCommand((editor) => editor.convertListItemToTask(contextMenu.blockId, true))
+            }
+          ] : []),
           {
             label: '增加列表缩进',
             icon: '⇥',
@@ -1135,6 +1155,26 @@ export default function App() {
           children: createConvertItems()
         },
         { label: '', separator: true },
+        {
+          label: '复制当前块到下方',
+          disabled: !canEdit,
+          action: () => runBlockCommand((editor) => editor.duplicateBlockAfter(contextMenu.blockId))
+        },
+        {
+          label: '上移当前块',
+          disabled: !canEdit || !canMoveBlockUp,
+          action: () => runBlockCommand((editor) => editor.moveBlockUp(contextMenu.blockId))
+        },
+        {
+          label: '下移当前块',
+          disabled: !canEdit || !canMoveBlockDown,
+          action: () => runBlockCommand((editor) => editor.moveBlockDown(contextMenu.blockId))
+        },
+        {
+          label: '删除当前块',
+          disabled: !canEdit,
+          action: () => runBlockCommand((editor) => editor.deleteBlock(contextMenu.blockId))
+        },
         { label: '复制当前块 Markdown', action: () => copyText(contextMenu.raw) },
         { label: '复制全文 Markdown', action: () => activeTab && copyText(activeTab.content) },
         {
