@@ -45,6 +45,13 @@ type CreateDirectoryResult = {
 };
 
 interface Window {
+  __markit?: {
+    readonly editor: import('mark-it-core').Editor | null;
+    readonly renderer: import('mark-it-core').Renderer | null;
+    reset: (content?: string) => void;
+    getMarkdown: () => string;
+  };
+  __markitReady?: boolean;
   markItWorkspace?: {
     openFolder: () => Promise<WorkspaceOpenResult | null>;
     newFolder: () => Promise<WorkspaceOpenResult | null>;

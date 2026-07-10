@@ -22,5 +22,5 @@
       "mark-it-core/style.css": ["../packages/core/src/styles/main.css"]
     }
   },
-  "include": ["src"]
+  "include": ["src", "../playground/desktop/src/App.tsx", "../playground/desktop/src/vite-env.d.ts"]
 }
