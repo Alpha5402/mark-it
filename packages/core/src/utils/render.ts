@@ -164,9 +164,11 @@ export const renderBlock = (block: BlockModel, expanded: boolean = false): Docum
           prefix.textContent = style.order
         } else if ('task' in style && style.task) {
           const check = style.checked ? (style.checkedMarker ?? 'x') : ' '
-          prefix.textContent = (style.bullet ?? '-') + ' [' + check + ']' + (style.markerSpacing ?? ' ')
+          const bullet = ('bullet' in style ? style.bullet : undefined) ?? '-'
+          prefix.textContent = bullet + ' [' + check + ']' + (style.markerSpacing ?? ' ')
         } else {
-          prefix.textContent = (style.bullet ?? '-') + ' '
+          const bullet = ('bullet' in style ? style.bullet : undefined) ?? '-'
+          prefix.textContent = bullet + ' '
         }
       } else {
         if (style.ordered) {

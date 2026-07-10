@@ -718,9 +718,11 @@ export class Editor {
               const orderNum = parseInt(listItem.style.order) || 1
               newMarker = `${orderNum + 1}. `
             } else if ('task' in listItem.style && listItem.style.task) {
-              newMarker = `${listItem.style.bullet ?? '-'} [ ]${listItem.style.markerSpacing ?? ' '}`
+              const bullet = ('bullet' in listItem.style ? listItem.style.bullet : undefined) ?? '-'
+              newMarker = `${bullet} [ ]${listItem.style.markerSpacing ?? ' '}`
             } else {
-              newMarker = `${listItem.style.bullet ?? '-'} `
+              const bullet = ('bullet' in listItem.style ? listItem.style.bullet : undefined) ?? '-'
+              newMarker = `${bullet} `
             }
             const newLineRaw = indent + newMarker + afterContent
 

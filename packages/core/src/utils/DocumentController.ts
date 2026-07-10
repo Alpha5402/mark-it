@@ -97,9 +97,11 @@ export class DocumentController {
         raw += listItem.style.order
       } else if ('task' in listItem.style && listItem.style.task) {
         const check = listItem.style.checked ? (listItem.style.checkedMarker ?? 'x') : ' '
-        raw += (listItem.style.bullet ?? '-') + ' [' + check + ']' + (listItem.style.markerSpacing ?? ' ')
+        const bullet = ('bullet' in listItem.style ? listItem.style.bullet : undefined) ?? '-'
+        raw += bullet + ' [' + check + ']' + (listItem.style.markerSpacing ?? ' ')
       } else {
-        raw += (listItem.style.bullet ?? '-') + ' '
+        const bullet = ('bullet' in listItem.style ? listItem.style.bullet : undefined) ?? '-'
+        raw += bullet + ' '
       }
     } else if (block.type === 'heading') {
       const heading = block as HeadingBlock
