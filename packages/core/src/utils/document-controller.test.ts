@@ -31,6 +31,32 @@ describe('DocumentController raw round-trip', () => {
     ])
   })
 
+  test('round-trips nested inline formatting without duplicating markers', () => {
+    const source = 'a **bold *italic*** z'
+    const doc = new DocumentController(source)
+
+    expect(snapshot(doc).map(b => b.raw).join('\n')).toBe(source)
+  })
+
+  test('preserves blockquote marker spacing and footnote identity changes', () => {
+    const compactQuote = new DocumentController('>quote')
+    expect(snapshot(compactQuote).map(b => b.raw)).toEqual(['>quote'])
+
+    const footnote = new DocumentController('[^note]: definition')
+    const blockId = Array.from(footnote.getBlocks().keys())[0]
+    footnote.reconcileFromRawText(blockId, 'X[^note]: definition')
+    expect(snapshot(footnote).map(b => b.raw)).toEqual(['X[^note]: definition'])
+
+    const compactFootnote = new DocumentController('[^note]:definition')
+    expect(snapshot(compactFootnote).map(b => b.raw)).toEqual(['[^note]:definition'])
+
+    const compactTask = new DocumentController('- [x]done')
+    expect(snapshot(compactTask).map(b => b.raw)).toEqual(['- [x]done'])
+
+    const uppercaseTask = new DocumentController('- [X] DONE')
+    expect(snapshot(uppercaseTask).map(b => b.raw)).toEqual(['- [X] DONE'])
+  })
+
   test('round-trips code, math, and table blocks exactly', () => {
     const source = [
       '~~~python',
