@@ -67,6 +67,33 @@ describe('Editor block commands', () => {
     editor.destroy()
   })
 
+  test('deletes blocks and keeps the document editable when the last block is removed', () => {
+    const editor = createEditor('intro\n```ts\nconst x = 1\n```\n| a | b |\n| --- | --- |\n| 1 | 2 |')
+    const [paragraph, code, table] = snapshot(editor)
+
+    expect(editor.deleteBlock(code.id)).toBe(true)
+    let snap = snapshot(editor)
+    expect(snap.map(block => block.raw)).toEqual([
+      'intro',
+      '| a | b |\n| --- | --- |\n| 1 | 2 |',
+    ])
+    expect(editor.dom.getExpandedBlockId()).toBe(table.id)
+
+    expect(editor.deleteBlock(table.id)).toBe(true)
+    snap = snapshot(editor)
+    expect(snap.map(block => block.raw)).toEqual(['intro'])
+    expect(editor.dom.getExpandedBlockId()).toBe(paragraph.id)
+
+    expect(editor.deleteBlock(paragraph.id)).toBe(true)
+    snap = snapshot(editor)
+    expect(snap).toMatchObject([{ type: 'blank', raw: '' }])
+    expect(editor.dom.getExpandedBlockId()).toBe(snap[0].id)
+
+    expect(editor.deleteBlock('missing')).toBe(false)
+
+    editor.destroy()
+  })
+
   test('moves blocks up and down without rewriting their raw markdown', () => {
     const editor = createEditor('intro\n```ts\nconst x = 1\n```\n| a | b |\n| --- | --- |\n| 1 | 2 |')
     const [paragraph, code, table] = snapshot(editor)
@@ -189,6 +216,25 @@ describe('Editor block commands', () => {
       raw: '- [x] todo',
     })
 
+    expect(editor.convertTaskListItemToList(task.id)).toBe(true)
+    expect(snapshot(editor)[0]).toMatchObject({
+      type: 'list-item',
+      raw: '- todo',
+    })
+
+    expect(editor.convertListItemToTask(task.id)).toBe(true)
+    expect(snapshot(editor)[0]).toMatchObject({
+      type: 'list-item',
+      raw: '- [ ] todo',
+    })
+
+    expect(editor.convertTaskListItemToList(task.id)).toBe(true)
+    expect(editor.convertListItemToTask(task.id, true)).toBe(true)
+    expect(snapshot(editor)[0]).toMatchObject({
+      type: 'list-item',
+      raw: '- [x] todo',
+    })
+
     expect(editor.indentListItem(task.id)).toBe(true)
     expect(snapshot(editor)[0]).toMatchObject({
       type: 'list-item',
@@ -239,6 +285,8 @@ describe('Editor block commands', () => {
     const id = snapshot(editor)[0].id
 
     expect(editor.toggleTaskListItem(id)).toBe(false)
+    expect(editor.convertListItemToTask(id)).toBe(false)
+    expect(editor.convertTaskListItemToList(id)).toBe(false)
     expect(editor.indentListItem(id)).toBe(false)
     expect(editor.outdentListItem(id)).toBe(false)
     expect(editor.increaseBlockquoteLevel(id)).toBe(false)

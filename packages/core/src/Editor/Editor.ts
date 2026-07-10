@@ -1384,6 +1384,21 @@ export class Editor {
     return true
   }
 
+  deleteBlock(blockId: string): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block) return false
+
+    const cursorInfo = this.getCurrentCursorInfo(this.controller['captureSelection']?.() ?? null)
+    this.history.pushSnapshot(this.doc.blocks, cursorInfo)
+
+    const result = this.doc.deleteBlock(blockId)
+    if (!result) return false
+
+    this.rebuildAndFocusBlock(result.focusBlockId, this.doc.prefixOffset(result.focusBlockId))
+    this.notifyContentChange()
+    return true
+  }
+
   moveBlockUp(blockId: string): boolean {
     return this.moveBlock(blockId, 'up')
   }
@@ -1441,6 +1456,36 @@ export class Editor {
     if (nextRawText === rawText) return false
 
     return this.applyBlockRawCommand(blockId, nextRawText, this.doc.prefixOffset(blockId))
+  }
+
+  convertListItemToTask(blockId: string, checked = false): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'list-item') return false
+
+    const listItem = block as ListItemBlock
+    if ('task' in listItem.style && listItem.style.task) return false
+
+    const contentRaw = this.getConvertibleBlockContentRaw(blockId)
+    if (contentRaw === null) return false
+
+    const indent = ' '.repeat(block.nesting ?? 0)
+    const nextRawText = `${indent}- [${checked ? 'x' : ' '}] ${contentRaw}`
+    return this.applyBlockRawCommand(blockId, nextRawText, this.doc.prefixOffset(blockId) + 4)
+  }
+
+  convertTaskListItemToList(blockId: string): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'list-item') return false
+
+    const listItem = block as ListItemBlock
+    if (!('task' in listItem.style) || !listItem.style.task) return false
+
+    const contentRaw = this.getConvertibleBlockContentRaw(blockId)
+    if (contentRaw === null) return false
+
+    const indent = ' '.repeat(block.nesting ?? 0)
+    const nextRawText = `${indent}- ${contentRaw}`
+    return this.applyBlockRawCommand(blockId, nextRawText, this.doc.prefixOffset(blockId) - 4)
   }
 
   indentListItem(blockId: string): boolean {
