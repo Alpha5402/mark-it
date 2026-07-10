@@ -1811,7 +1811,7 @@ export default function App() {
           <img src={logoUrl} alt="" className="brand-logo" />
           <div className="brand-copy">
             <div className="brand-name">Mark It</div>
-            <div className="brand-meta">{workspaceName || 'Desktop writer'}</div>
+            <div className="brand-meta">{workspaceName || (platform === 'web' ? 'Web writer' : 'Desktop writer')}</div>
           </div>
         </div>
 
