@@ -101,5 +101,43 @@ test.describe('03.14 inline caret position matrix', () => {
         ).toBe(expected)
       }
     })
+
+    test(`3.14 ${inlineCase.name}: ArrowRight advances exactly one visible raw character`, async ({ page }) => {
+      const source = inlineCase.markdown
+
+      for (let offset = 0; offset < source.length; offset += 1) {
+        await resetEditor(page, source)
+        const blockId = await blockIdAt(page, 0)
+        await placeCaret(page, blockId, offset)
+        await page.keyboard.press('ArrowRight')
+        await page.keyboard.type('X')
+
+        const targetOffset = offset + 1
+        const expected = `${source.slice(0, targetOffset)}X${source.slice(targetOffset)}`
+        expect(
+          await currentRawText(page, blockId),
+          `${inlineCase.name} ArrowRight from raw offset ${offset}`,
+        ).toBe(expected)
+      }
+    })
+
+    test(`3.14 ${inlineCase.name}: ArrowLeft retreats exactly one visible raw character`, async ({ page }) => {
+      const source = inlineCase.markdown
+
+      for (let offset = 1; offset <= source.length; offset += 1) {
+        await resetEditor(page, source)
+        const blockId = await blockIdAt(page, 0)
+        await placeCaret(page, blockId, offset)
+        await page.keyboard.press('ArrowLeft')
+        await page.keyboard.type('X')
+
+        const targetOffset = offset - 1
+        const expected = `${source.slice(0, targetOffset)}X${source.slice(targetOffset)}`
+        expect(
+          await currentRawText(page, blockId),
+          `${inlineCase.name} ArrowLeft from raw offset ${offset}`,
+        ).toBe(expected)
+      }
+    })
   }
 })
