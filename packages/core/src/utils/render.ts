@@ -163,7 +163,8 @@ export const renderBlock = (block: BlockModel, expanded: boolean = false): Docum
         if (style.ordered) {
           prefix.textContent = style.order
         } else if ('task' in style && style.task) {
-          prefix.textContent = '- [' + (style.checked ? 'x' : ' ') + '] '
+          const check = style.checked ? (style.checkedMarker ?? 'x') : ' '
+          prefix.textContent = '- [' + check + ']' + (style.markerSpacing ?? ' ')
         } else {
           prefix.textContent = '- '
         }
@@ -227,7 +228,8 @@ export const renderBlock = (block: BlockModel, expanded: boolean = false): Docum
       break
     }
     case 'blockquote': {
-      const depth = (block as BlockquoteBlock).quoteDepth
+      const quote = block as BlockquoteBlock
+      const depth = quote.quoteDepth
       const div = document.createElement('div')
       div.className = 'md-blockquote'
       // 嵌套引用：通过 data 属性传递深度
@@ -240,7 +242,7 @@ export const renderBlock = (block: BlockModel, expanded: boolean = false): Docum
         indentPrefixes.forEach(n => content.appendChild(n))
         const markerSpan = document.createElement('span')
         markerSpan.classList.add('md-struct-marker')
-        markerSpan.textContent = '>'.repeat(depth) + ' '
+        markerSpan.textContent = '>'.repeat(depth) + (quote.quoteSpacing ?? ' ')
         content.appendChild(markerSpan)
       }
 
@@ -426,7 +428,8 @@ export const renderBlock = (block: BlockModel, expanded: boolean = false): Docum
           // 展开模式：显示原始 [^id]: 标记
           const markerSpan = document.createElement('span')
           markerSpan.classList.add('md-struct-marker')
-          markerSpan.textContent = `[^${(block as FootnoteDefBlock).footnoteId}]: `
+          const footnote = block as FootnoteDefBlock
+          markerSpan.textContent = `[^${footnote.footnoteId}]:${footnote.footnoteSpacing ?? ' '}`
           content.appendChild(markerSpan)
         }
       } else if (isFootnoteDef) {

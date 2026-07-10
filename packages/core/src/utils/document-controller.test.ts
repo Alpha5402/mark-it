@@ -31,6 +31,32 @@ describe('DocumentController raw round-trip', () => {
     ])
   })
 
+  test('round-trips nested inline formatting without duplicating markers', () => {
+    const source = 'a **bold *italic*** z'
+    const doc = new DocumentController(source)
+
+    expect(snapshot(doc).map(b => b.raw).join('\n')).toBe(source)
+  })
+
+  test('preserves blockquote marker spacing and footnote identity changes', () => {
+    const compactQuote = new DocumentController('>quote')
+    expect(snapshot(compactQuote).map(b => b.raw)).toEqual(['>quote'])
+
+    const footnote = new DocumentController('[^note]: definition')
+    const blockId = Array.from(footnote.getBlocks().keys())[0]
+    footnote.reconcileFromRawText(blockId, 'X[^note]: definition')
+    expect(snapshot(footnote).map(b => b.raw)).toEqual(['X[^note]: definition'])
+
+    const compactFootnote = new DocumentController('[^note]:definition')
+    expect(snapshot(compactFootnote).map(b => b.raw)).toEqual(['[^note]:definition'])
+
+    const compactTask = new DocumentController('- [x]done')
+    expect(snapshot(compactTask).map(b => b.raw)).toEqual(['- [x]done'])
+
+    const uppercaseTask = new DocumentController('- [X] DONE')
+    expect(snapshot(uppercaseTask).map(b => b.raw)).toEqual(['- [X] DONE'])
+  })
+
   test('round-trips code, math, and table blocks exactly', () => {
     const source = [
       '~~~python',
@@ -101,6 +127,35 @@ describe('DocumentController raw round-trip', () => {
     ].join('\n'))
     expect(doc.getTableCsv(paragraph.id)).toBeNull()
     expect(doc.getTableCsv('missing')).toBeNull()
+  })
+
+  test('exposes targeted table rows and columns as CSV', () => {
+    const doc = new DocumentController([
+      '| name | note | empty |',
+      '| --- | --- | --- |',
+      '| Ada | hello, world | |',
+      '| Bob | quote "ok" | tail |',
+      'plain',
+    ].join('\n'))
+    const [table, paragraph] = snapshot(doc)
+
+    expect(doc.getTableRowCsv(table.id, 0)).toBe('Ada,"hello, world",')
+    expect(doc.getTableRowCsv(table.id, 1)).toBe('Bob,"quote ""ok""",tail')
+    expect(doc.getTableColumnCsv(table.id, 1)).toBe([
+      'note',
+      '"hello, world"',
+      '"quote ""ok"""',
+    ].join('\n'))
+    expect(doc.getTableColumnCsv(table.id, 2)).toBe('empty\n\ntail')
+
+    expect(doc.getTableRowCsv(paragraph.id, 0)).toBeNull()
+    expect(doc.getTableColumnCsv(paragraph.id, 0)).toBeNull()
+    expect(doc.getTableRowCsv(table.id, -1)).toBeNull()
+    expect(doc.getTableRowCsv(table.id, 2)).toBeNull()
+    expect(doc.getTableColumnCsv(table.id, -1)).toBeNull()
+    expect(doc.getTableColumnCsv(table.id, 3)).toBeNull()
+    expect(doc.getTableRowCsv('missing', 0)).toBeNull()
+    expect(doc.getTableColumnCsv('missing', 0)).toBeNull()
   })
 
   test('keeps whole-line single-line $$ spans as paragraph text', () => {

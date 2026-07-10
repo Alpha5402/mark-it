@@ -259,6 +259,18 @@ describe('Editor block commands', () => {
       raw: '| a | b |\n| --- | --- |\n| 1 | 2 |\n|  |  |',
     })
 
+    expect(editor.insertTableRowAfter(table.id, 0)).toBe(true)
+    expect(snapshot(editor)[2]).toMatchObject({
+      type: 'table',
+      raw: '| a | b |\n| --- | --- |\n| 1 | 2 |\n|  |  |\n|  |  |',
+    })
+
+    expect(editor.deleteTableRow(table.id, 1)).toBe(true)
+    expect(snapshot(editor)[2]).toMatchObject({
+      type: 'table',
+      raw: '| a | b |\n| --- | --- |\n| 1 | 2 |\n|  |  |',
+    })
+
     expect(editor.insertTableColumnAfter(table.id)).toBe(true)
     expect(snapshot(editor)[2]).toMatchObject({
       type: 'table',
@@ -275,6 +287,82 @@ describe('Editor block commands', () => {
     expect(snapshot(editor)[2]).toMatchObject({
       type: 'table',
       raw: '| a | b |\n| --- | --- |\n| 1 | 2 |',
+    })
+
+    expect(editor.setTableColumnAlignment(table.id, 1, 'right')).toBe(true)
+    expect(snapshot(editor)[2]).toMatchObject({
+      type: 'table',
+      raw: '| a | b |\n| --- | ---: |\n| 1 | 2 |',
+    })
+
+    expect(editor.duplicateTableColumnAfter(table.id, 1)).toBe(true)
+    expect(snapshot(editor)[2]).toMatchObject({
+      type: 'table',
+      raw: '| a | b | b |\n| --- | ---: | ---: |\n| 1 | 2 | 2 |',
+    })
+
+    expect(editor.deleteTableColumn(table.id, 2)).toBe(true)
+    expect(snapshot(editor)[2]).toMatchObject({
+      type: 'table',
+      raw: '| a | b |\n| --- | ---: |\n| 1 | 2 |',
+    })
+
+    expect(editor.setTableAllColumnsAlignment(table.id, 'center')).toBe(true)
+    expect(snapshot(editor)[2]).toMatchObject({
+      type: 'table',
+      raw: '| a | b |\n| :---: | :---: |\n| 1 | 2 |',
+    })
+
+    expect(editor.setTableAllColumnsAlignment(table.id, 'default')).toBe(true)
+    expect(snapshot(editor)[2]).toMatchObject({
+      type: 'table',
+      raw: '| a | b |\n| --- | --- |\n| 1 | 2 |',
+    })
+
+    expect(editor.duplicateTableRowAfter(table.id, 0)).toBe(true)
+    expect(snapshot(editor)[2]).toMatchObject({
+      type: 'table',
+      raw: '| a | b |\n| --- | --- |\n| 1 | 2 |\n| 1 | 2 |',
+    })
+
+    expect(editor.deleteTableRow(table.id, 1)).toBe(true)
+    expect(snapshot(editor)[2]).toMatchObject({
+      type: 'table',
+      raw: '| a | b |\n| --- | --- |\n| 1 | 2 |',
+    })
+
+    expect(editor.duplicateTableRowAfter(table.id, 0)).toBe(true)
+    expect(editor.clearTableRow(table.id, 1)).toBe(true)
+    expect(snapshot(editor)[2]).toMatchObject({
+      type: 'table',
+      raw: '| a | b |\n| --- | --- |\n| 1 | 2 |\n|  |  |',
+    })
+
+    expect(editor.clearTableRow(table.id, 1)).toBe(false)
+    expect(editor.deleteTableRow(table.id, 1)).toBe(true)
+    expect(snapshot(editor)[2]).toMatchObject({
+      type: 'table',
+      raw: '| a | b |\n| --- | --- |\n| 1 | 2 |',
+    })
+
+    expect(editor.insertTableColumnAfter(table.id, 0)).toBe(true)
+    expect(snapshot(editor)[2]).toMatchObject({
+      type: 'table',
+      raw: '| a |  | b |\n| --- | --- | --- |\n| 1 |  | 2 |',
+    })
+
+    expect(editor.clearTableColumn(table.id, 2)).toBe(true)
+    expect(snapshot(editor)[2]).toMatchObject({
+      type: 'table',
+      raw: '| a |  | b |\n| --- | --- | --- |\n| 1 |  |  |',
+    })
+
+    expect(editor.clearTableColumn(table.id, 2)).toBe(false)
+
+    expect(editor.deleteTableColumn(table.id, 1)).toBe(true)
+    expect(snapshot(editor)[2]).toMatchObject({
+      type: 'table',
+      raw: '| a | b |\n| --- | --- |\n| 1 |  |',
     })
 
     editor.destroy()
@@ -297,8 +385,16 @@ describe('Editor block commands', () => {
     expect(editor.setCodeBlockFence(id, '~~~')).toBe(false)
     expect(editor.insertTableRowAfter(id)).toBe(false)
     expect(editor.insertTableColumnAfter(id)).toBe(false)
+    expect(editor.duplicateTableRowAfter(id, 0)).toBe(false)
+    expect(editor.duplicateTableColumnAfter(id, 0)).toBe(false)
+    expect(editor.clearTableRow(id, 0)).toBe(false)
+    expect(editor.clearTableColumn(id, 0)).toBe(false)
     expect(editor.deleteTableLastRow(id)).toBe(false)
+    expect(editor.deleteTableRow(id, 0)).toBe(false)
     expect(editor.deleteTableLastColumn(id)).toBe(false)
+    expect(editor.deleteTableColumn(id, 0)).toBe(false)
+    expect(editor.setTableColumnAlignment(id, 0, 'left')).toBe(false)
+    expect(editor.setTableAllColumnsAlignment(id, 'left')).toBe(false)
     expect(snapshot(editor)).toMatchObject([
       { type: 'paragraph', raw: 'paragraph' },
     ])
@@ -414,7 +510,26 @@ describe('Editor block commands', () => {
     const table = snapshot(editor)[0]
 
     expect(editor.deleteTableLastRow(table.id)).toBe(false)
+    expect(editor.insertTableRowAfter(table.id, -2)).toBe(false)
+    expect(editor.insertTableRowAfter(table.id, 0)).toBe(false)
+    expect(editor.duplicateTableRowAfter(table.id, -1)).toBe(false)
+    expect(editor.duplicateTableRowAfter(table.id, 0)).toBe(false)
+    expect(editor.duplicateTableColumnAfter(table.id, -1)).toBe(false)
+    expect(editor.duplicateTableColumnAfter(table.id, 1)).toBe(false)
+    expect(editor.clearTableRow(table.id, -1)).toBe(false)
+    expect(editor.clearTableRow(table.id, 0)).toBe(false)
+    expect(editor.clearTableColumn(table.id, -1)).toBe(false)
+    expect(editor.clearTableColumn(table.id, 1)).toBe(false)
+    expect(editor.deleteTableRow(table.id, -1)).toBe(false)
+    expect(editor.deleteTableRow(table.id, 0)).toBe(false)
     expect(editor.deleteTableLastColumn(table.id)).toBe(false)
+    expect(editor.insertTableColumnAfter(table.id, -1)).toBe(false)
+    expect(editor.insertTableColumnAfter(table.id, 1)).toBe(false)
+    expect(editor.deleteTableColumn(table.id, -1)).toBe(false)
+    expect(editor.deleteTableColumn(table.id, 1)).toBe(false)
+    expect(editor.setTableColumnAlignment(table.id, -1, 'left')).toBe(false)
+    expect(editor.setTableColumnAlignment(table.id, 1, 'left')).toBe(false)
+    expect(editor.setTableAllColumnsAlignment(table.id, 'default')).toBe(false)
     expect(snapshot(editor)).toMatchObject([
       { type: 'table', raw: '| only |\n| --- |' },
     ])
