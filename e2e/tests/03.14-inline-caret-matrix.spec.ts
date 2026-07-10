@@ -19,6 +19,10 @@ const inlineCases: InlineCase[] = [
   { name: 'highlight', markdown: 'a ==highlight== z' },
   { name: 'inline-code', markdown: 'a `const x = 1` z' },
   { name: 'link', markdown: 'a [label](https://example.test/a) z' },
+  { name: 'nested-bold-italic', markdown: 'a **bold *italic*** z' },
+  { name: 'image', markdown: 'a ![alt](https://example.test/a.png) z' },
+  { name: 'inline-math', markdown: 'a $x^2 + y$ z' },
+  { name: 'footnote-reference', markdown: 'a [^note] z' },
 ]
 
 async function currentRawText(page: Page, blockId: string) {

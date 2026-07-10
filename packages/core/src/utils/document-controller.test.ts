@@ -31,6 +31,13 @@ describe('DocumentController raw round-trip', () => {
     ])
   })
 
+  test('round-trips nested inline formatting without duplicating markers', () => {
+    const source = 'a **bold *italic*** z'
+    const doc = new DocumentController(source)
+
+    expect(snapshot(doc).map(b => b.raw).join('\n')).toBe(source)
+  })
+
   test('round-trips code, math, and table blocks exactly', () => {
     const source = [
       '~~~python',

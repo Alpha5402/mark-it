@@ -150,4 +150,14 @@ describe('inlineParse', () => {
       dirty: false,
     })
   })
+
+  test('preserves nested marker transitions without duplicating outer markers', () => {
+    const parsed = inlineParse('**bold *italic***')
+    const texts = parsed.inline.filter(i => i.type === 'text') as TextInline[]
+
+    expect(texts.map(t => [t.text, t.marks, t.markers])).toEqual([
+      ['bold ', INLINE_FLAG.BOLD, { prefix: '**', suffix: '' }],
+      ['italic', INLINE_FLAG.BOLD | INLINE_FLAG.ITALIC, { prefix: '*', suffix: '***' }],
+    ])
+  })
 })

@@ -206,8 +206,10 @@ export function inlineParse(input: string): {
 
   // 当前活跃的格式标记（已配对的开启标记符）
   let currentMarks = 0
-  // 活跃标记符栈：记录当前开启的标记符，用于构建 markers
-  const activeFlags: { flag: number; raw: string }[] = []
+  // 自上次文本段结束后新出现的开启 marker。markers 必须描述相邻
+  // inline 段之间的真实 raw 边界，不能把所有活跃 marker 包到每一段上，
+  // 否则 **bold *italic*** 会在 round-trip 时重复输出外层 **。
+  let pendingPrefix = ''
 
   let pos = 0
   let buffer = ''
@@ -216,16 +218,9 @@ export function inlineParse(input: string): {
   const flush = () => {
     if (!buffer) return
 
-    let markers: { prefix: string; suffix: string } | undefined
-    if (currentMarks !== 0 && activeFlags.length > 0) {
-      let prefix = ''
-      for (const af of activeFlags) {
-        if (currentMarks & af.flag) {
-          prefix += af.raw
-        }
-      }
-      markers = { prefix, suffix: prefix }
-    }
+    const markers = currentMarks !== 0
+      ? { prefix: pendingPrefix, suffix: '' }
+      : undefined
 
     result.push({
       type: 'text',
@@ -239,6 +234,7 @@ export function inlineParse(input: string): {
     })
     buffer = ''
     bufferRawStart = null
+    pendingPrefix = ''
   }
 
   while (pos < input.length) {
@@ -375,14 +371,16 @@ export function inlineParse(input: string): {
           // 这是开启标记符 → flush 当前 buffer，开启新格式
           flush()
           currentMarks |= token.flag
-          activeFlags.push({ flag: token.flag, raw: token.raw })
+          pendingPrefix += token.raw
         } else {
           // 这是关闭标记符 → flush 当前 buffer，关闭格式
           flush()
+          const previous = result[result.length - 1]
+          if (previous?.type === 'text') {
+            previous.markers ??= { prefix: '', suffix: '' }
+            previous.markers.suffix += token.raw
+          }
           currentMarks &= ~token.flag
-          // 从 activeFlags 中移除
-          const idx = activeFlags.findIndex(af => af.flag === token.flag)
-          if (idx !== -1) activeFlags.splice(idx, 1)
         }
         pos += token.len
         continue
