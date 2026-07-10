@@ -143,6 +143,18 @@ export class DocumentController {
     return raw
   }
 
+  getCodeBlockContent(blockId: string): string | null {
+    const block = this.blocks.get(blockId)
+    if (!block || block.type !== 'code-block') return null
+    return (block as CodeBlock).code
+  }
+
+  getMathBlockContent(blockId: string): string | null {
+    const block = this.blocks.get(blockId)
+    if (!block || block.type !== 'math-block') return null
+    return (block as MathBlock).tex
+  }
+
   /**
    * 将 inline model 数组重建为原始 Markdown 文本（包含标记符如 **、~~、== 等）
    */

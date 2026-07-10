@@ -60,6 +60,30 @@ describe('DocumentController raw round-trip', () => {
     expect(snapshot(doc).map(b => b.raw)).toEqual(['```\n```', '$$\n$$'])
   })
 
+  test('exposes fenced code content without markdown fences', () => {
+    const doc = new DocumentController('```ts\nconst x = 1\nconsole.log(x)\n```\nplain')
+    const [code, paragraph] = snapshot(doc)
+
+    expect(doc.getCodeBlockContent(code.id)).toBe('const x = 1\nconsole.log(x)')
+    expect(doc.getCodeBlockContent(paragraph.id)).toBeNull()
+
+    const empty = new DocumentController('```\n```')
+    expect(doc.getCodeBlockContent('missing')).toBeNull()
+    expect(empty.getCodeBlockContent(snapshot(empty)[0].id)).toBe('')
+  })
+
+  test('exposes math block tex without display markers', () => {
+    const doc = new DocumentController('$$\na^2 + b^2\n= c^2\n$$\nplain')
+    const [math, paragraph] = snapshot(doc)
+
+    expect(doc.getMathBlockContent(math.id)).toBe('a^2 + b^2\n= c^2')
+    expect(doc.getMathBlockContent(paragraph.id)).toBeNull()
+
+    const empty = new DocumentController('$$\n$$')
+    expect(doc.getMathBlockContent('missing')).toBeNull()
+    expect(empty.getMathBlockContent(snapshot(empty)[0].id)).toBe('')
+  })
+
   test('keeps whole-line single-line $$ spans as paragraph text', () => {
     const doc = new DocumentController('before\n$$\\frac{a}{b}$$\nafter')
 
