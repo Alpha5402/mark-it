@@ -170,6 +170,29 @@ export class Editor {
       return
     }
 
+    // Cut must write the exact selected raw Markdown and then perform the same
+    // model-driven deletion as Backspace. Browser default mutation is disabled.
+    if (type === EditorActionType.Cut) {
+      if (!selection || selection.isCollapsed) return
+      const text = this.getSelectedText(selection)
+      if (text && nativeEvent) {
+        ;(nativeEvent as ClipboardEvent).clipboardData?.setData('text/plain', text)
+      }
+
+      this.history.pushSnapshot(this.doc.blocks, null)
+      if (this.crossBlockSelection && this.crossBlockSelection.blockIds.length >= 2) {
+        const saved = this.crossBlockSelection
+        this.crossBlockSelection = null
+        this.handleCrossBlockReplace(saved, '')
+        return
+      }
+
+      const block = this.doc.getBlock(getIdFromBlock(selection.anchorNode!))
+      const root = getBlockAnchor(selection.anchorNode!)
+      if (block && root) this.handleReplaceSelection(block, root, selection, '')
+      return
+    }
+
     // ========== 修改操作前保存快照（用于 Undo） ==========
     const isMutatingAction = (
       type === EditorActionType.InsertText ||
@@ -823,14 +846,13 @@ export class Editor {
     }
 
     // ========== Copy / Cut 处理 ==========
-    if (type === EditorActionType.Copy || type === EditorActionType.Cut) {
+    if (type === EditorActionType.Copy) {
       if (selection && nativeEvent) {
         const text = this.getSelectedText(selection)
         if (text) {
           const clipboardEvent = nativeEvent as ClipboardEvent
           clipboardEvent.clipboardData?.setData('text/plain', text)
         }
-        // Cut: 复制后还需要删除选中内容（暂不实现跨 block 删除，仅做复制）
       }
       return
     }
@@ -2069,17 +2091,27 @@ export class Editor {
       return sel?.toString() ?? null
     }
 
-    // 跨 block 选中：收集所有涉及的 block 的 raw text，用换行拼接
-    const blockIds = this.getBlockIdsBetween(anchorBlockId, focusBlockId)
-    if (blockIds.length === 0) return null
+    const saved = this.crossBlockSelection
+    if (!saved || saved.blockIds.length < 2) return null
 
-    const texts: string[] = []
-    for (const blockId of blockIds) {
-      const rawText = this.doc.getRawText(blockId)
-      if (rawText) texts.push(rawText)
-    }
+    const anchorIndex = saved.blockIds.indexOf(saved.anchorBlockId)
+    const focusIndex = saved.blockIds.indexOf(saved.focusBlockId)
+    const isForward = anchorIndex <= focusIndex
+    const startBlockId = isForward ? saved.anchorBlockId : saved.focusBlockId
+    const endBlockId = isForward ? saved.focusBlockId : saved.anchorBlockId
+    const startOffset = isForward ? saved.anchorRawOffset : saved.focusRawOffset
+    const endOffset = isForward ? saved.focusRawOffset : saved.anchorRawOffset
+    const startIndex = saved.blockIds.indexOf(startBlockId)
+    const endIndex = saved.blockIds.indexOf(endBlockId)
+    if (startIndex < 0 || endIndex < startIndex) return null
 
-    return texts.join('\n')
+    return saved.blockIds.slice(startIndex, endIndex + 1).map((blockId, index, selectedIds) => {
+      const raw = this.doc.getRawText(blockId)
+      if (selectedIds.length === 1) return raw.slice(startOffset, endOffset)
+      if (index === 0) return raw.slice(startOffset)
+      if (index === selectedIds.length - 1) return raw.slice(0, endOffset)
+      return raw
+    }).join('\n')
   }
 
   /**

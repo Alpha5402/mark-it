@@ -70,8 +70,7 @@ test.describe('04 event-interception', () => {
       { blockId: id2, offset: 2 },
     )
     const copied = await simulateCopy(page)
-    expect(copied.length).toBeGreaterThan(0)
-    expect(copied).toContain('bbb')
+    expect(copied).toBe('aa\nbbb\ncc')
   })
 
   test('4.4.1 Cmd+Z Undo → 回滚上一次编辑', async ({ page }) => {
