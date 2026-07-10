@@ -96,7 +96,8 @@ export class DocumentController {
       if (listItem.style.ordered) {
         raw += listItem.style.order
       } else if ('task' in listItem.style && listItem.style.task) {
-        raw += '- [' + (listItem.style.checked ? 'x' : ' ') + '] '
+        const check = listItem.style.checked ? (listItem.style.checkedMarker ?? 'x') : ' '
+        raw += '- [' + check + ']' + (listItem.style.markerSpacing ?? ' ')
       } else {
         raw += '- '
       }
@@ -107,7 +108,7 @@ export class DocumentController {
       return '---'
     } else if (block.type === 'blockquote') {
       const bq = block as BlockquoteBlock
-      raw += '>'.repeat(bq.quoteDepth) + ' '
+      raw += '>'.repeat(bq.quoteDepth) + (bq.quoteSpacing ?? ' ')
     } else if (block.type === 'code-block') {
       const cb = block as CodeBlock
       const fence = cb.fence ?? '```'
@@ -137,7 +138,7 @@ export class DocumentController {
     // 脚注定义块
     if ('footnoteId' in block && (block as FootnoteDefBlock).footnoteId) {
       const fnDef = block as FootnoteDefBlock
-      raw += `[^${fnDef.footnoteId}]: `
+      raw += `[^${fnDef.footnoteId}]:${fnDef.footnoteSpacing ?? ' '}`
     }
 
     // 3. inline 内容（包含 inline 标记符）
@@ -168,6 +169,31 @@ export class DocumentController {
     const rows = [table.headers, ...table.rows]
     return rows
       .map(row => table.headers.map((_, index) => toCsvCell(row[index] ?? '')).join(','))
+      .join('\n')
+  }
+
+  getTableRowCsv(blockId: string, rowIndex: number): string | null {
+    const block = this.blocks.get(blockId)
+    if (!block || block.type !== 'table') return null
+    if (!Number.isInteger(rowIndex)) return null
+
+    const table = block as TableBlock
+    if (rowIndex < 0 || rowIndex >= table.rows.length) return null
+
+    const row = table.rows[rowIndex]
+    return table.headers.map((_, index) => toCsvCell(row[index] ?? '')).join(',')
+  }
+
+  getTableColumnCsv(blockId: string, columnIndex: number): string | null {
+    const block = this.blocks.get(blockId)
+    if (!block || block.type !== 'table') return null
+    if (!Number.isInteger(columnIndex)) return null
+
+    const table = block as TableBlock
+    if (columnIndex < 0 || columnIndex >= table.headers.length) return null
+
+    return [table.headers, ...table.rows]
+      .map(row => toCsvCell(row[columnIndex] ?? ''))
       .join('\n')
   }
 
@@ -348,12 +374,9 @@ export class DocumentController {
       }
     }
 
-    // 当 blockquote 的引用符号被完全删除后，行首可能残留空格
-    // （`> text` → ` text`），需要去掉行首的空格
-    let rawTextForParse = newRawText
-    if (block.type === 'blockquote' && !newRawText.startsWith('>')) {
-      rawTextForParse = newRawText.replace(/^\s/, '')
-    }
+    // 保留用户编辑后得到的原始空白。删除 `> text` 中的 `>` 应得到
+    // ` text`，不能静默吞掉仍然可见的空格。
+    const rawTextForParse = newRawText
 
     // 用 parseLine 重新解析整行文本（需要正确提取 leading 以保留缩进信息）
     const leading = rawTextForParse.match(/^[ \t]*/)?.[0] ?? ''
@@ -364,6 +387,16 @@ export class DocumentController {
       // 结构变化（如 list-item → paragraph，heading → paragraph）
       this.blocks.set(blockId, newBlock)
       return { kind: 'block-transform', from: block, to: newBlock }
+    }
+
+    const oldFootnoteId = 'footnoteId' in block ? (block as FootnoteDefBlock).footnoteId : null
+    const newFootnoteId = 'footnoteId' in newBlock ? (newBlock as FootnoteDefBlock).footnoteId : null
+    if (oldFootnoteId !== newFootnoteId) {
+      this.blocks.set(blockId, newBlock)
+      return { kind: 'block-transform', from: block, to: newBlock }
+    }
+    if (oldFootnoteId && newFootnoteId) {
+      (block as FootnoteDefBlock).footnoteSpacing = (newBlock as FootnoteDefBlock).footnoteSpacing
     }
 
     // 类型相同但可能深度变了（heading）
@@ -383,6 +416,7 @@ export class DocumentController {
         this.blocks.set(blockId, newBlock)
         return { kind: 'block-transform', from: block, to: newBlock }
       }
+      oldQuote.quoteSpacing = newQuote.quoteSpacing
     }
 
     if (newBlock.type === 'list-item' && block.type === 'list-item') {
@@ -635,8 +669,7 @@ export class DocumentController {
       if (listItem.style.ordered) {
         prefixOffset += listItem.style.order.length
       } else if ('task' in listItem.style && listItem.style.task) {
-        // "- [x] " = 6 characters
-        prefixOffset += 6
+        prefixOffset += 5 + (listItem.style.markerSpacing ?? ' ').length
       } else {
         prefixOffset += 2
       }
@@ -650,8 +683,7 @@ export class DocumentController {
 
     if (block.type === 'blockquote') {
       const bq = block as BlockquoteBlock
-      // blockquote marker: n 个 > + 1 个空格
-      prefixOffset += bq.quoteDepth + 1
+      prefixOffset += bq.quoteDepth + (bq.quoteSpacing ?? ' ').length
     }
 
     return prefixOffset

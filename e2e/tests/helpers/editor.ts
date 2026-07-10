@@ -89,7 +89,7 @@ export function editorArea(page: Page): Locator {
 
 /** 获取某个 block 的 locator（按 data-block-id 精确匹配） */
 export function blockLocator(page: Page, blockId: string): Locator {
-  return page.locator(`.md-renderer-area [data-block-id="${blockId}"]`)
+  return page.locator(`.md-renderer-area .md-line-block[data-block-id="${blockId}"]`)
 }
 
 /** 按索引获取 block id（从 0 开始） */
