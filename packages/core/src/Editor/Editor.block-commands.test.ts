@@ -135,6 +135,18 @@ describe('Editor block commands', () => {
       raw: '- [x] todo',
     })
 
+    expect(editor.indentListItem(task.id)).toBe(true)
+    expect(snapshot(editor)[0]).toMatchObject({
+      type: 'list-item',
+      raw: '    - [x] todo',
+    })
+
+    expect(editor.outdentListItem(task.id)).toBe(true)
+    expect(snapshot(editor)[0]).toMatchObject({
+      type: 'list-item',
+      raw: '- [x] todo',
+    })
+
     expect(editor.setCodeBlockLanguage(code.id, 'ts')).toBe(true)
     expect(snapshot(editor)[1]).toMatchObject({
       type: 'code-block',
@@ -173,6 +185,8 @@ describe('Editor block commands', () => {
     const id = snapshot(editor)[0].id
 
     expect(editor.toggleTaskListItem(id)).toBe(false)
+    expect(editor.indentListItem(id)).toBe(false)
+    expect(editor.outdentListItem(id)).toBe(false)
     expect(editor.setCodeBlockLanguage(id, 'ts')).toBe(false)
     expect(editor.insertTableRowAfter(id)).toBe(false)
     expect(editor.insertTableColumnAfter(id)).toBe(false)
@@ -180,6 +194,28 @@ describe('Editor block commands', () => {
     expect(editor.deleteTableLastColumn(id)).toBe(false)
     expect(snapshot(editor)).toMatchObject([
       { type: 'paragraph', raw: 'paragraph' },
+    ])
+
+    editor.destroy()
+  })
+
+  test('indents and outdents ordered list items without changing list markers', () => {
+    const editor = createEditor('7. numbered')
+    const item = snapshot(editor)[0]
+
+    expect(editor.indentListItem(item.id)).toBe(true)
+    expect(snapshot(editor)).toMatchObject([
+      { type: 'list-item', raw: '    7. numbered' },
+    ])
+
+    expect(editor.outdentListItem(item.id)).toBe(true)
+    expect(snapshot(editor)).toMatchObject([
+      { type: 'list-item', raw: '7. numbered' },
+    ])
+
+    expect(editor.outdentListItem(item.id)).toBe(false)
+    expect(snapshot(editor)).toMatchObject([
+      { type: 'list-item', raw: '7. numbered' },
     ])
 
     editor.destroy()
