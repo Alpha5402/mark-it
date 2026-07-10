@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Editor, Renderer } from 'mark-it-core';
-import { BrowseIcon, CloseIcon, EditIcon, FileAddIcon, FileIcon, FolderAddIcon } from 'tdesign-icons-react';
+import { BrowseIcon, ChevronRightIcon, CloseIcon, EditIcon, FileAddIcon, FileIcon, FolderAddIcon } from 'tdesign-icons-react';
 import logoUrl from './logo.svg';
 
 type Mode = 'edit' | 'read';
@@ -1719,7 +1719,7 @@ export default function App() {
             onClick={() => toggleDirectory(node.path)}
             onContextMenu={(event) => openContextMenu(event, { kind: 'tree-directory', node })}
           >
-            <span className={`tree-caret ${expanded ? 'expanded' : ''}`}>›</span>
+            <span className={`tree-caret ${expanded ? 'expanded' : ''}`}><ChevronRightIcon /></span>
             <span className="tree-icon"><FolderIcon /></span>
             <span className="tree-name">{node.name}</span>
           </button>
@@ -1797,7 +1797,7 @@ export default function App() {
                 aria-label={`关闭 ${tab.name}`}
                 onClick={() => closeTab(tab.id)}
               >
-                ×
+                <CloseIcon />
               </button>
             </div>
           ))}
