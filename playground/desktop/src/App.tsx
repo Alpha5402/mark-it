@@ -101,6 +101,12 @@ function getCodeBlockLanguageFromRaw(raw: string) {
   return match ? match[2].trim() : '';
 }
 
+function getCodeBlockFenceFromRaw(raw: string) {
+  const firstLine = raw.split('\n', 1)[0] ?? '';
+  const match = firstLine.match(/^(`{3}|~{3})(.*)$/);
+  return match ? match[1] : '```';
+}
+
 function isConvertibleTextBlock(type: string) {
   return type === 'paragraph' ||
     type === 'heading' ||
@@ -891,12 +897,16 @@ export default function App() {
       const codeLanguage = contextMenu.blockType === 'code-block'
         ? getCodeBlockLanguageFromRaw(contextMenu.raw)
         : '';
+      const codeFence = contextMenu.blockType === 'code-block'
+        ? getCodeBlockFenceFromRaw(contextMenu.raw)
+        : '```';
       const runBlockCommand = (command: (editor: Editor) => boolean) => {
         const editor = editorRef.current;
         if (!editor) return;
         command(editor);
       };
       const setCodeLanguage = (language: string) => runBlockCommand((editor) => editor.setCodeBlockLanguage(contextMenu.blockId, language));
+      const setCodeFence = (fence: '```' | '~~~') => runBlockCommand((editor) => editor.setCodeBlockFence(contextMenu.blockId, fence));
       const createInsertItems = (placement: 'before' | 'after'): ContextMenuItem[] => {
         const runInsert = (template: Parameters<Editor['insertTemplateBlockAfter']>[1]) => {
           runBlockCommand((editor) => placement === 'before'
@@ -1042,6 +1052,18 @@ export default function App() {
             label: '复制代码内容',
             disabled: false,
             action: copyCodeBlockContent
+          },
+          {
+            label: '使用反引号围栏',
+            hint: codeFence === '```' ? '当前' : undefined,
+            disabled: !canEdit || codeFence === '```',
+            action: () => setCodeFence('```')
+          },
+          {
+            label: '使用波浪线围栏',
+            hint: codeFence === '~~~' ? '当前' : undefined,
+            disabled: !canEdit || codeFence === '~~~',
+            action: () => setCodeFence('~~~')
           },
           {
             label: '设为 TypeScript 代码',

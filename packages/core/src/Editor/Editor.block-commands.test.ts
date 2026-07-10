@@ -192,6 +192,7 @@ describe('Editor block commands', () => {
     expect(editor.promoteHeadingLevel(id)).toBe(false)
     expect(editor.demoteHeadingLevel(id)).toBe(false)
     expect(editor.setCodeBlockLanguage(id, 'ts')).toBe(false)
+    expect(editor.setCodeBlockFence(id, '~~~')).toBe(false)
     expect(editor.insertTableRowAfter(id)).toBe(false)
     expect(editor.insertTableColumnAfter(id)).toBe(false)
     expect(editor.deleteTableLastRow(id)).toBe(false)
@@ -220,6 +221,28 @@ describe('Editor block commands', () => {
     expect(editor.outdentListItem(item.id)).toBe(false)
     expect(snapshot(editor)).toMatchObject([
       { type: 'list-item', raw: '7. numbered' },
+    ])
+
+    editor.destroy()
+  })
+
+  test('switches code block fence type while preserving language and content', () => {
+    const editor = createEditor('```ts\nconst x = 1\n```')
+    const code = snapshot(editor)[0]
+
+    expect(editor.setCodeBlockFence(code.id, '~~~')).toBe(true)
+    expect(snapshot(editor)).toMatchObject([
+      { type: 'code-block', raw: '~~~ts\nconst x = 1\n~~~' },
+    ])
+
+    expect(editor.setCodeBlockFence(code.id, '~~~')).toBe(false)
+    expect(snapshot(editor)).toMatchObject([
+      { type: 'code-block', raw: '~~~ts\nconst x = 1\n~~~' },
+    ])
+
+    expect(editor.setCodeBlockFence(code.id, '```')).toBe(true)
+    expect(snapshot(editor)).toMatchObject([
+      { type: 'code-block', raw: '```ts\nconst x = 1\n```' },
     ])
 
     editor.destroy()

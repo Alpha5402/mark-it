@@ -1506,6 +1506,23 @@ export class Editor {
     return this.applyBlockRawCommand(blockId, nextRawText, cursorRawOffset)
   }
 
+  setCodeBlockFence(blockId: string, fence: '```' | '~~~'): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'code-block') return false
+
+    const codeBlock = block as CodeBlock
+    if (codeBlock.fence === fence) return false
+
+    const rawText = this.doc.getRawText(blockId)
+    const lines = rawText.split('\n')
+    if (lines.length < 2) return false
+
+    lines[0] = `${fence}${codeBlock.language}`
+    lines[lines.length - 1] = fence
+
+    return this.applyBlockRawCommand(blockId, lines.join('\n'), this.doc.prefixOffset(blockId))
+  }
+
   insertTableRowAfter(blockId: string): boolean {
     const block = this.doc.getBlock(blockId)
     if (!block || block.type !== 'table') return false
