@@ -97,9 +97,9 @@ export class DocumentController {
         raw += listItem.style.order
       } else if ('task' in listItem.style && listItem.style.task) {
         const check = listItem.style.checked ? (listItem.style.checkedMarker ?? 'x') : ' '
-        raw += '- [' + check + ']' + (listItem.style.markerSpacing ?? ' ')
+        raw += (listItem.style.bullet ?? '-') + ' [' + check + ']' + (listItem.style.markerSpacing ?? ' ')
       } else {
-        raw += '- '
+        raw += (listItem.style.bullet ?? '-') + ' '
       }
     } else if (block.type === 'heading') {
       const heading = block as HeadingBlock

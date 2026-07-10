@@ -534,6 +534,7 @@ export function parseLine(line: RawLine): BlockModel {
   // 如果是列表项
   if (/^\s*[-*+]\s/.test(raw)) {
     const match = raw.match(/^\s*[-*+]\s/)!
+    const bullet = match[0].trim() as '-' | '*' | '+'
     const afterMarker = raw.slice(match[0].length)
 
     // 检测任务列表：- [ ] 或 - [x] 或 - [X]
@@ -549,6 +550,7 @@ export function parseLine(line: RawLine): BlockModel {
         inline: inlineParse(content).inline,
         style: {
           ordered: false,
+          bullet,
           task: true,
           checked,
           checkedMarker,
@@ -565,7 +567,8 @@ export function parseLine(line: RawLine): BlockModel {
       nesting: leadingSpaceParse(leading),
       inline: inlineParse(content).inline,
       style: {
-        ordered: false
+        ordered: false,
+        bullet
       }
     } as ListItemBlock
   }

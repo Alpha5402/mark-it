@@ -80,10 +80,12 @@ export interface ListItemBlock extends BlockModel {
     order: string
   } | {
     ordered: false
+    bullet?: '-' | '*' | '+'
   } | {
     ordered: false
     task: true
     checked: boolean
+    bullet?: '-' | '*' | '+'
     checkedMarker?: 'x' | 'X'
     markerSpacing?: string
   }

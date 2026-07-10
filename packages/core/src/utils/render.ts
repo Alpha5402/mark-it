@@ -164,9 +164,9 @@ export const renderBlock = (block: BlockModel, expanded: boolean = false): Docum
           prefix.textContent = style.order
         } else if ('task' in style && style.task) {
           const check = style.checked ? (style.checkedMarker ?? 'x') : ' '
-          prefix.textContent = '- [' + check + ']' + (style.markerSpacing ?? ' ')
+          prefix.textContent = (style.bullet ?? '-') + ' [' + check + ']' + (style.markerSpacing ?? ' ')
         } else {
-          prefix.textContent = '- '
+          prefix.textContent = (style.bullet ?? '-') + ' '
         }
       } else {
         if (style.ordered) {

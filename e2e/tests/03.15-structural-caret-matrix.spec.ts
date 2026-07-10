@@ -11,6 +11,8 @@ const structuralCases = [
   { name: 'heading-1', markdown: '# heading' },
   { name: 'heading-6', markdown: '###### heading' },
   { name: 'unordered-list', markdown: '- item' },
+  { name: 'star-list', markdown: '* item' },
+  { name: 'plus-list', markdown: '+ item' },
   { name: 'ordered-list', markdown: '12. item' },
   { name: 'unchecked-task', markdown: '- [ ] task' },
   { name: 'checked-task', markdown: '- [x] done' },
