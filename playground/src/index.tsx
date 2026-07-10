@@ -1,9 +1,13 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import App from './App'; // 引入我们刚才写的 App 组件
+import App from './App';
+import { installWebBridge } from './webBridge';
+import '../desktop/src/styles.css';
 
-const container = document.getElementById('root');
-const root = createRoot(container);
+installWebBridge();
 
-// 渲染 App
-root.render(<App />);
+createRoot(document.getElementById('root') as HTMLElement).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
