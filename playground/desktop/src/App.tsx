@@ -84,6 +84,28 @@ function blockTypeLabel(type: string) {
   return 'Markdown 块';
 }
 
+function isTaskListRaw(raw: string) {
+  return /^\s*[-*+] \[(?: |x|X)\]\s/.test(raw);
+}
+
+function isCheckedTaskRaw(raw: string) {
+  return /^\s*[-*+] \[(?:x|X)\]\s/.test(raw);
+}
+
+function getCodeBlockLanguageFromRaw(raw: string) {
+  const firstLine = raw.split('\n', 1)[0] ?? '';
+  const match = firstLine.match(/^(`{3,}|~{3,})(.*)$/);
+  return match ? match[2].trim() : '';
+}
+
+function isConvertibleTextBlock(type: string) {
+  return type === 'paragraph' ||
+    type === 'heading' ||
+    type === 'list-item' ||
+    type === 'blockquote' ||
+    type === 'blank';
+}
+
 function getFormatShortcutAction(event: KeyboardEvent): FormatShortcutAction | null {
   const key = event.key.toLowerCase();
   if (key === 'b' && !event.shiftKey) return 'bold';
@@ -842,8 +864,135 @@ export default function App() {
 
     if (contextMenu.kind === 'editor-block') {
       const canEdit = Boolean(editorRef.current);
+      const canConvert = canEdit && isConvertibleTextBlock(contextMenu.blockType);
+      const isTaskList = contextMenu.blockType === 'list-item' && isTaskListRaw(contextMenu.raw);
+      const isCheckedTask = isCheckedTaskRaw(contextMenu.raw);
+      const codeLanguage = contextMenu.blockType === 'code-block'
+        ? getCodeBlockLanguageFromRaw(contextMenu.raw)
+        : '';
+      const runBlockCommand = (command: (editor: Editor) => boolean) => {
+        const editor = editorRef.current;
+        if (!editor) return;
+        command(editor);
+      };
+      const setCodeLanguage = (language: string) => runBlockCommand((editor) => editor.setCodeBlockLanguage(contextMenu.blockId, language));
       return [
         { label: blockTypeLabel(contextMenu.blockType), hint: '编辑区', disabled: true },
+        {
+          label: '在上方插入段落',
+          disabled: !canEdit,
+          action: () => runBlockCommand((editor) => editor.insertBlankBlockBefore(contextMenu.blockId))
+        },
+        {
+          label: '在下方插入段落',
+          disabled: !canEdit,
+          action: () => runBlockCommand((editor) => editor.insertBlankBlockAfter(contextMenu.blockId))
+        },
+        {
+          label: '在下方插入任务列表',
+          disabled: !canEdit,
+          action: () => runBlockCommand((editor) => editor.insertTemplateBlockAfter(contextMenu.blockId, 'task-list'))
+        },
+        {
+          label: '在下方插入代码块',
+          disabled: !canEdit,
+          action: () => runBlockCommand((editor) => editor.insertTemplateBlockAfter(contextMenu.blockId, 'code-block'))
+        },
+        {
+          label: '在下方插入公式块',
+          disabled: !canEdit,
+          action: () => runBlockCommand((editor) => editor.insertTemplateBlockAfter(contextMenu.blockId, 'math-block'))
+        },
+        {
+          label: '在下方插入表格',
+          disabled: !canEdit,
+          action: () => runBlockCommand((editor) => editor.insertTemplateBlockAfter(contextMenu.blockId, 'table'))
+        },
+        ...(isTaskList ? [
+          {
+            label: isCheckedTask ? '标记任务为未完成' : '标记任务为已完成',
+            disabled: !canEdit,
+            action: () => runBlockCommand((editor) => editor.toggleTaskListItem(contextMenu.blockId))
+          }
+        ] : []),
+        ...(contextMenu.blockType === 'code-block' ? [
+          {
+            label: '设为 TypeScript 代码',
+            hint: codeLanguage === 'ts' ? '当前' : undefined,
+            disabled: !canEdit || codeLanguage === 'ts',
+            action: () => setCodeLanguage('ts')
+          },
+          {
+            label: '设为 JavaScript 代码',
+            hint: codeLanguage === 'js' ? '当前' : undefined,
+            disabled: !canEdit || codeLanguage === 'js',
+            action: () => setCodeLanguage('js')
+          },
+          {
+            label: '设为 Python 代码',
+            hint: codeLanguage === 'python' ? '当前' : undefined,
+            disabled: !canEdit || codeLanguage === 'python',
+            action: () => setCodeLanguage('python')
+          },
+          {
+            label: '设为 Bash 代码',
+            hint: codeLanguage === 'bash' ? '当前' : undefined,
+            disabled: !canEdit || codeLanguage === 'bash',
+            action: () => setCodeLanguage('bash')
+          },
+          {
+            label: '清除代码语言',
+            disabled: !canEdit || codeLanguage === '',
+            action: () => setCodeLanguage('')
+          }
+        ] : []),
+        ...(contextMenu.blockType === 'table' ? [
+          {
+            label: '在表格末尾追加行',
+            disabled: !canEdit,
+            action: () => runBlockCommand((editor) => editor.insertTableRowAfter(contextMenu.blockId))
+          },
+          {
+            label: '在表格末尾追加列',
+            disabled: !canEdit,
+            action: () => runBlockCommand((editor) => editor.insertTableColumnAfter(contextMenu.blockId))
+          },
+          {
+            label: '删除表格末尾行',
+            disabled: !canEdit,
+            action: () => runBlockCommand((editor) => editor.deleteTableLastRow(contextMenu.blockId))
+          },
+          {
+            label: '删除表格末尾列',
+            disabled: !canEdit,
+            action: () => runBlockCommand((editor) => editor.deleteTableLastColumn(contextMenu.blockId))
+          }
+        ] : []),
+        {
+          label: '转换为段落',
+          disabled: !canConvert,
+          action: () => runBlockCommand((editor) => editor.convertTextBlock(contextMenu.blockId, 'paragraph'))
+        },
+        {
+          label: '转换为标题 1',
+          disabled: !canConvert,
+          action: () => runBlockCommand((editor) => editor.convertTextBlock(contextMenu.blockId, 'heading-1'))
+        },
+        {
+          label: '转换为标题 2',
+          disabled: !canConvert,
+          action: () => runBlockCommand((editor) => editor.convertTextBlock(contextMenu.blockId, 'heading-2'))
+        },
+        {
+          label: '转换为无序列表',
+          disabled: !canConvert,
+          action: () => runBlockCommand((editor) => editor.convertTextBlock(contextMenu.blockId, 'unordered-list'))
+        },
+        {
+          label: '转换为引用',
+          disabled: !canConvert,
+          action: () => runBlockCommand((editor) => editor.convertTextBlock(contextMenu.blockId, 'blockquote'))
+        },
         { label: '复制当前块 Markdown', action: () => copyText(contextMenu.raw) },
         { label: '复制全文 Markdown', action: () => activeTab && copyText(activeTab.content) },
         {

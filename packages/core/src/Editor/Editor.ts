@@ -19,6 +19,22 @@ export type InlineFormatState = {
   link: InlineFormatStatus
 }
 
+export type TextBlockConversionTarget =
+  | 'paragraph'
+  | 'heading-1'
+  | 'heading-2'
+  | 'heading-3'
+  | 'unordered-list'
+  | 'ordered-list'
+  | 'blockquote'
+
+export type BlockTemplateTarget =
+  | 'paragraph'
+  | 'task-list'
+  | 'code-block'
+  | 'math-block'
+  | 'table'
+
 type InlineCoverageSegment = {
   start: number
   end: number
@@ -1326,6 +1342,182 @@ export class Editor {
     this.executeFormat('link')
   }
 
+  insertBlankBlockBefore(blockId: string): boolean {
+    const anchor = this.doc.getBlock(blockId)
+    if (!anchor) return false
+
+    const cursorInfo = this.getCurrentCursorInfo(this.controller['captureSelection']?.() ?? null)
+    this.history.pushSnapshot(this.doc.blocks, cursorInfo)
+
+    const inserted = this.doc.createBlockFromRawTextBefore('', blockId)
+    if (!inserted) return false
+
+    this.rebuildAndFocusBlock(inserted.id, 0)
+    this.notifyContentChange()
+    return true
+  }
+
+  insertBlankBlockAfter(blockId: string): boolean {
+    const anchor = this.doc.getBlock(blockId)
+    if (!anchor) return false
+
+    const cursorInfo = this.getCurrentCursorInfo(this.controller['captureSelection']?.() ?? null)
+    this.history.pushSnapshot(this.doc.blocks, cursorInfo)
+
+    const inserted = this.doc.createBlockFromRawText('', blockId)
+    this.rebuildAndFocusBlock(inserted.id, 0)
+    this.notifyContentChange()
+    return true
+  }
+
+  insertTemplateBlockAfter(blockId: string, template: BlockTemplateTarget): boolean {
+    const anchor = this.doc.getBlock(blockId)
+    if (!anchor) return false
+
+    const details = this.getBlockTemplateDetails(template)
+    if (!details) return false
+
+    const cursorInfo = this.getCurrentCursorInfo(this.controller['captureSelection']?.() ?? null)
+    this.history.pushSnapshot(this.doc.blocks, cursorInfo)
+
+    const inserted = this.doc.createBlockFromRawText(details.rawText, blockId)
+    this.rebuildAndFocusBlock(inserted.id, details.cursorRawOffset)
+    this.notifyContentChange()
+    return true
+  }
+
+  toggleTaskListItem(blockId: string): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'list-item') return false
+
+    const listItem = block as ListItemBlock
+    if (!('task' in listItem.style) || !listItem.style.task) return false
+
+    const rawText = this.doc.getRawText(blockId)
+    const nextRawText = rawText.replace(
+      /^(\s*[-*+] \[)(?: |x|X)(\]\s*)/,
+      `$1${listItem.style.checked ? ' ' : 'x'}$2`
+    )
+    if (nextRawText === rawText) return false
+
+    return this.applyBlockRawCommand(blockId, nextRawText, this.doc.prefixOffset(blockId))
+  }
+
+  setCodeBlockLanguage(blockId: string, language: string): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'code-block') return false
+
+    const codeBlock = block as CodeBlock
+    const normalizedLanguage = language.trim().replace(/\s+/g, '')
+    if (normalizedLanguage === codeBlock.language) return false
+
+    const rawText = this.doc.getRawText(blockId)
+    const fence = codeBlock.fence ?? '```'
+    const nextOpeningLine = `${fence}${normalizedLanguage}`
+    const nextRawText = rawText.replace(/^[^\n]*/, nextOpeningLine)
+    const cursorRawOffset = Math.min(nextRawText.length, nextOpeningLine.length + 1)
+
+    return this.applyBlockRawCommand(blockId, nextRawText, cursorRawOffset)
+  }
+
+  insertTableRowAfter(blockId: string): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'table') return false
+
+    const table = block as TableBlock
+    const columnCount = Math.max(1, table.headers.length)
+    const rowRaw = `| ${Array.from({ length: columnCount }, () => '').join(' | ')} |`
+    const rawText = this.doc.getRawText(blockId)
+    const rowStartOffset = rawText.length + 1
+    const nextRawText = `${rawText}\n${rowRaw}`
+
+    return this.applyBlockRawCommand(blockId, nextRawText, rowStartOffset + 2)
+  }
+
+  insertTableColumnAfter(blockId: string): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'table') return false
+
+    const table = block as TableBlock
+    const headers = [...table.headers, '']
+    const aligns = [...table.aligns, 'default' as const]
+    const rows = table.rows.map(row => {
+      const normalizedRow = row.slice(0, table.headers.length)
+      while (normalizedRow.length < table.headers.length) normalizedRow.push('')
+      return [...normalizedRow, '']
+    })
+    const nextRawText = this.buildTableRaw(headers, aligns, rows)
+    const firstCellOffset = Math.max(0, nextRawText.split('\n')[0].length - 2)
+
+    return this.applyBlockRawCommand(blockId, nextRawText, firstCellOffset)
+  }
+
+  deleteTableLastRow(blockId: string): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'table') return false
+
+    const table = block as TableBlock
+    if (table.rows.length === 0) return false
+
+    const rows = table.rows.slice(0, -1)
+    const nextRawText = this.buildTableRaw(table.headers, table.aligns, rows)
+
+    return this.applyBlockRawCommand(blockId, nextRawText, nextRawText.length)
+  }
+
+  deleteTableLastColumn(blockId: string): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'table') return false
+
+    const table = block as TableBlock
+    if (table.headers.length <= 1) return false
+
+    const headers = table.headers.slice(0, -1)
+    const aligns = table.aligns.slice(0, headers.length)
+    const rows = table.rows.map(row => row.slice(0, headers.length))
+    const nextRawText = this.buildTableRaw(headers, aligns, rows)
+    const firstCellOffset = Math.max(0, nextRawText.split('\n')[0].length - 2)
+
+    return this.applyBlockRawCommand(blockId, nextRawText, firstCellOffset)
+  }
+
+  convertTextBlock(blockId: string, target: TextBlockConversionTarget): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block) return false
+
+    const contentRaw = this.getConvertibleBlockContentRaw(blockId)
+    if (contentRaw === null) return false
+
+    const nextRawText = this.buildConvertedTextBlockRaw(contentRaw, target)
+    if (nextRawText === null) return false
+    const cursorInfo = this.getCurrentCursorInfo(this.controller['captureSelection']?.() ?? null)
+    this.history.pushSnapshot(this.doc.blocks, cursorInfo)
+
+    const effect = this.doc.reconcileFromRawText(blockId, nextRawText)
+    if (!effect || effect.kind === 'code-block-degrade') return false
+
+    const targetBlock = effect.kind === 'block-transform' ? effect.to : effect.block
+    this.rebuildAndFocusBlock(targetBlock.id, this.doc.prefixOffset(targetBlock.id))
+    this.notifyContentChange()
+    return true
+  }
+
+  private applyBlockRawCommand(blockId: string, nextRawText: string, cursorRawOffset: number): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block) return false
+
+    const cursorInfo = this.getCurrentCursorInfo(this.controller['captureSelection']?.() ?? null)
+    this.history.pushSnapshot(this.doc.blocks, cursorInfo)
+
+    const effect = this.doc.reconcileFromRawText(blockId, nextRawText)
+    if (!effect || effect.kind === 'code-block-degrade') return false
+
+    const targetBlock = effect.kind === 'block-transform' ? effect.to : effect.block
+    this.rebuildAndFocusBlock(targetBlock.id, cursorRawOffset)
+    this.notifyContentChange()
+    return true
+  }
+
   /**
    * 获取当前非折叠选区内行内格式状态。
    * active 表示选区全部处于该格式，inactive 表示全部不处于该格式，
@@ -1393,6 +1585,77 @@ export class Editor {
 
     this.handleFormatToggle(selection, format)
     this.notifyContentChange()
+  }
+
+  private rebuildAndFocusBlock(blockId: string, rawOffset: number): void {
+    const blocks = Array.from(this.doc.getBlocks().values())
+    this.dom.fullRebuild(blocks)
+    const block = this.doc.getBlock(blockId)
+    if (!block) return
+
+    this.dom.renderBlockExpanded(block)
+    this.dom.setCursorByRawOffset(blockId, rawOffset)
+    this.dom.clearHighlight()
+    this.scheduler.highlightBlock(blockId, BlockVisualState.active)
+    this.skipNextSelectionAction = true
+  }
+
+  private getConvertibleBlockContentRaw(blockId: string): string | null {
+    const block = this.doc.getBlock(blockId)
+    if (!block) return null
+    if (block.type === 'code-block' || block.type === 'math-block' || block.type === 'table' || block.type === 'hr') return null
+    if ('footnoteId' in block) return null
+
+    const rawText = this.doc.getRawText(blockId)
+    if (block.type === 'blank') return ''
+    return rawText.slice(this.doc.prefixOffset(blockId))
+  }
+
+  private buildConvertedTextBlockRaw(contentRaw: string, target: TextBlockConversionTarget): string | null {
+    if (target === 'paragraph') return contentRaw
+    if (target === 'heading-1') return `# ${contentRaw}`
+    if (target === 'heading-2') return `## ${contentRaw}`
+    if (target === 'heading-3') return `### ${contentRaw}`
+    if (target === 'unordered-list') return `- ${contentRaw}`
+    if (target === 'ordered-list') return `1. ${contentRaw}`
+    if (target === 'blockquote') return `> ${contentRaw}`
+    return null
+  }
+
+  private getBlockTemplateDetails(template: BlockTemplateTarget): { rawText: string; cursorRawOffset: number } | null {
+    if (template === 'paragraph') {
+      return { rawText: '', cursorRawOffset: 0 }
+    }
+    if (template === 'task-list') {
+      return { rawText: '- [ ] ', cursorRawOffset: 6 }
+    }
+    if (template === 'code-block') {
+      return { rawText: '```\n\n```', cursorRawOffset: 4 }
+    }
+    if (template === 'math-block') {
+      return { rawText: '$$\n\n$$', cursorRawOffset: 3 }
+    }
+    if (template === 'table') {
+      return { rawText: '|  |  |\n| --- | --- |\n|  |  |', cursorRawOffset: 2 }
+    }
+    return null
+  }
+
+  private buildTableRaw(
+    headers: string[],
+    aligns: ('left' | 'center' | 'right' | 'default')[],
+    rows: string[][]
+  ): string {
+    const headerRow = `| ${headers.join(' | ')} |`
+    const separatorRow = `| ${headers.map((_, index) => {
+      const align = aligns[index] ?? 'default'
+      if (align === 'left') return ':---'
+      if (align === 'center') return ':---:'
+      if (align === 'right') return '---:'
+      return '---'
+    }).join(' | ')} |`
+    const dataRows = rows.map(row => `| ${headers.map((_, index) => row[index] ?? '').join(' | ')} |`)
+    return [headerRow, separatorRow, ...dataRows].join('\n')
   }
 
   /**
