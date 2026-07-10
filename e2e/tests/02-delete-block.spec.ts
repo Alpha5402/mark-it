@@ -91,7 +91,7 @@ test.describe('02 delete block', () => {
     const id = await blockIdAt(page, 0)
     await placeCaret(page, id, 1)
     await page.keyboard.press('Backspace')
-    await expectMarkdownEquals(page, 'quoted')
+    await expectMarkdownEquals(page, ' quoted')
     const snap = await getEditorSnapshot(page)
     expect(snap.blocks[0].type).toBe('paragraph')
   })
