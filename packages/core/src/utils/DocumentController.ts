@@ -38,6 +38,11 @@ function parseMathBlockRaw(rawText: string): { tex: string; texLineCount: number
   return null
 }
 
+function toCsvCell(value: string): string {
+  if (!/[",\r\n]/.test(value)) return value
+  return `"${value.replace(/"/g, '""')}"`
+}
+
 export class DocumentController {
   blocks = new Map<string, BlockModel>()
   
@@ -153,6 +158,17 @@ export class DocumentController {
     const block = this.blocks.get(blockId)
     if (!block || block.type !== 'math-block') return null
     return (block as MathBlock).tex
+  }
+
+  getTableCsv(blockId: string): string | null {
+    const block = this.blocks.get(blockId)
+    if (!block || block.type !== 'table') return null
+
+    const table = block as TableBlock
+    const rows = [table.headers, ...table.rows]
+    return rows
+      .map(row => table.headers.map((_, index) => toCsvCell(row[index] ?? '')).join(','))
+      .join('\n')
   }
 
   /**
