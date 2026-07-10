@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Editor, Renderer } from 'mark-it-core';
-import { BrowseIcon, EditIcon, FileAddIcon, FileIcon, FolderAddIcon } from 'tdesign-icons-react';
+import { BrowseIcon, CloseIcon, EditIcon, FileAddIcon, FileIcon, FolderAddIcon } from 'tdesign-icons-react';
 import logoUrl from './logo.svg';
 
 type Mode = 'edit' | 'read';
@@ -1684,12 +1684,9 @@ export default function App() {
               aria-label="关闭设置"
               onClick={() => setIsSettingsOpen(false)}
             >
-              ×
+              <CloseIcon />
             </button>
           </header>
-          <div className="settings-tabs" role="tablist" aria-label="设置分类">
-            <button type="button" className="active" role="tab" aria-selected="true">快捷键</button>
-          </div>
           <div className="shortcut-settings-list">
             {shortcutGroups.map((group) => (
               <section key={group.title} className="shortcut-settings-group">

@@ -705,7 +705,7 @@ a {
 
 .settings-panel {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   width: min(620px, 100%);
   max-height: min(720px, calc(100vh - 56px));
   overflow: hidden;
@@ -743,13 +743,18 @@ a {
 }
 
 .settings-header button {
+  display: grid;
+  place-items: center;
   width: 30px;
   height: 30px;
   border-radius: 9px;
   color: #536276;
   background: transparent;
-  font-size: 20px;
-  line-height: 1;
+}
+
+.settings-header button svg {
+  width: 18px;
+  height: 18px;
 }
 
 .settings-header button:hover {
@@ -757,31 +762,10 @@ a {
   background: var(--liquid-fill-hover);
 }
 
-.settings-tabs {
-  display: flex;
-  gap: 8px;
-  padding: 12px 18px;
-}
-
-.settings-tabs button {
-  height: 30px;
-  padding: 0 12px;
-  border: 1px solid var(--liquid-border);
-  border-radius: 9px;
-  color: var(--liquid-accent);
-  background: var(--liquid-control);
-  font-weight: 720;
-}
-
-.settings-tabs button.active {
-  background: var(--liquid-fill-active);
-  box-shadow: var(--liquid-inset);
-}
-
 .shortcut-settings-list {
   min-height: 0;
   overflow: auto;
-  padding: 0 18px 18px;
+  padding: 8px 18px 18px;
 }
 
 .shortcut-settings-group {
