@@ -882,6 +882,12 @@ export default function App() {
         if (code === null || code === undefined) return;
         void copyText(code);
       };
+      const copyMathBlockContent = () => {
+        const surface = editorRef.current ?? rendererRef.current;
+        const tex = surface?.doc.getMathBlockContent(contextMenu.blockId);
+        if (tex === null || tex === undefined) return;
+        void copyText(tex);
+      };
       return [
         { label: blockTypeLabel(contextMenu.blockType), hint: '编辑区', disabled: true },
         {
@@ -955,6 +961,13 @@ export default function App() {
             label: '清除代码语言',
             disabled: !canEdit || codeLanguage === '',
             action: () => setCodeLanguage('')
+          }
+        ] : []),
+        ...(contextMenu.blockType === 'math-block' ? [
+          {
+            label: '复制公式内容',
+            disabled: false,
+            action: copyMathBlockContent
           }
         ] : []),
         ...(contextMenu.blockType === 'table' ? [

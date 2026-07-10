@@ -72,6 +72,18 @@ describe('DocumentController raw round-trip', () => {
     expect(empty.getCodeBlockContent(snapshot(empty)[0].id)).toBe('')
   })
 
+  test('exposes math block tex without display markers', () => {
+    const doc = new DocumentController('$$\na^2 + b^2\n= c^2\n$$\nplain')
+    const [math, paragraph] = snapshot(doc)
+
+    expect(doc.getMathBlockContent(math.id)).toBe('a^2 + b^2\n= c^2')
+    expect(doc.getMathBlockContent(paragraph.id)).toBeNull()
+
+    const empty = new DocumentController('$$\n$$')
+    expect(doc.getMathBlockContent('missing')).toBeNull()
+    expect(empty.getMathBlockContent(snapshot(empty)[0].id)).toBe('')
+  })
+
   test('keeps whole-line single-line $$ spans as paragraph text', () => {
     const doc = new DocumentController('before\n$$\\frac{a}{b}$$\nafter')
 
