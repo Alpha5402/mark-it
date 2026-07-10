@@ -125,7 +125,24 @@ export function installWebBridge() {
     restoreSession: async () => {
       try {
         const value = localStorage.getItem(sessionKey);
-        return value ? JSON.parse(value) as PersistedSessionState : { tabs: [], activeTabId: null };
+        if (value) return JSON.parse(value) as PersistedSessionState;
+
+        const workspace = loadWorkspace();
+        const welcomePath = `${rootPath}/欢迎使用.md`;
+        const content = workspace.files[welcomePath];
+        if (content === undefined) return { tabs: [], activeTabId: null };
+
+        const tabId = `path:${welcomePath}`;
+        return {
+          activeTabId: tabId,
+          tabs: [{
+            id: tabId,
+            path: welcomePath,
+            name: basename(welcomePath),
+            content,
+            isDirty: false
+          }]
+        };
       } catch {
         return { tabs: [], activeTabId: null };
       }

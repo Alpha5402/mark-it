@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Editor, Renderer } from 'mark-it-core';
+import { FileAddIcon, FileIcon, FolderAddIcon } from 'tdesign-icons-react';
 import logoUrl from './logo.svg';
 
 type Mode = 'edit' | 'read';
@@ -1817,9 +1818,32 @@ export default function App() {
 
         <div className="sidebar-main">
           {workspaceTree ? (
-            <div className="file-tree" aria-label="Markdown 文件树">
-              {renderTreeNode(workspaceTree)}
-            </div>
+            <>
+              <div className="file-tree-toolbar">
+                <span>文档</span>
+                <div className="file-tree-actions">
+                  <button
+                    type="button"
+                    title="新建笔记"
+                    aria-label="新建笔记"
+                    onClick={() => createMarkdownFileAt(workspaceTree)}
+                  >
+                    <FileAddIcon />
+                  </button>
+                  <button
+                    type="button"
+                    title="新建文件夹"
+                    aria-label="新建文件夹"
+                    onClick={() => createDirectoryAt(workspaceTree)}
+                  >
+                    <FolderAddIcon />
+                  </button>
+                </div>
+              </div>
+              <div className="file-tree" aria-label="Markdown 文件树">
+                {renderTreeNode(workspaceTree)}
+              </div>
+            </>
           ) : (
             <div className="sidebar-empty">打开文件夹后，这里会显示 Markdown 文件树。</div>
           )}
@@ -1896,7 +1920,18 @@ export default function App() {
               onContextMenu={openEditorContextMenu}
             />
           </div>
-        ) : <div className="workspace-empty">打开文件后，可在这里通过标签页切换多个文档。</div>}
+        ) : (
+          <div className="workspace-empty">
+            <FileIcon className="workspace-empty-icon" />
+            <strong>开始写作</strong>
+            <div className="workspace-empty-actions">
+              <button type="button" onClick={openMarkdownFile}>打开文档</button>
+              {workspaceTree && (
+                <button type="button" onClick={() => createMarkdownFileAt(workspaceTree)}>新建笔记</button>
+              )}
+            </div>
+          </div>
+        )}
         {hasOpenDocument && (
           <div className="stats-orb" aria-label="文档统计">
             <div>

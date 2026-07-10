@@ -18,7 +18,8 @@
     "mark-it-core": "workspace:*",
     "prismjs": "^1.30.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "tdesign-icons-react": "^0.3.5"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.2.0",
