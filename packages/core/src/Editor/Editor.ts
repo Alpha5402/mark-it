@@ -1686,6 +1686,51 @@ export class Editor {
     return this.applyBlockRawCommand(blockId, nextRawText, firstCellOffset)
   }
 
+  clearTableRow(blockId: string, rowIndex: number): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'table') return false
+
+    const table = block as TableBlock
+    if (!Number.isInteger(rowIndex) || rowIndex < 0 || rowIndex >= table.rows.length) return false
+
+    const columnCount = Math.max(1, table.headers.length)
+    const rows = table.rows.map(row => {
+      const normalizedRow = row.slice(0, columnCount)
+      while (normalizedRow.length < columnCount) normalizedRow.push('')
+      return normalizedRow
+    })
+    if (rows[rowIndex].every(cell => cell === '')) return false
+
+    rows[rowIndex] = Array.from({ length: columnCount }, () => '')
+    const nextRawText = this.buildTableRaw(table.headers, table.aligns, rows)
+    const rowStartOffset = this.getTableRowRawOffset(table.headers, table.aligns, rows, rowIndex)
+
+    return this.applyBlockRawCommand(blockId, nextRawText, rowStartOffset + 2)
+  }
+
+  clearTableColumn(blockId: string, columnIndex: number): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'table') return false
+
+    const table = block as TableBlock
+    if (!Number.isInteger(columnIndex) || columnIndex < 0 || columnIndex >= table.headers.length) return false
+
+    const rows = table.rows.map(row => {
+      const normalizedRow = row.slice(0, table.headers.length)
+      while (normalizedRow.length < table.headers.length) normalizedRow.push('')
+      return normalizedRow
+    })
+    if (rows.length === 0 || rows.every(row => (row[columnIndex] ?? '') === '')) return false
+
+    rows.forEach(row => {
+      row[columnIndex] = ''
+    })
+    const nextRawText = this.buildTableRaw(table.headers, table.aligns, rows)
+    const firstCellOffset = this.getTableCellRawOffset(table.headers, columnIndex)
+
+    return this.applyBlockRawCommand(blockId, nextRawText, firstCellOffset)
+  }
+
   deleteTableLastRow(blockId: string): boolean {
     const block = this.doc.getBlock(blockId)
     if (!block || block.type !== 'table') return false
