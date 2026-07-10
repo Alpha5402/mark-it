@@ -1006,9 +1006,26 @@ export default function App() {
             label: isCheckedTask ? '标记任务为未完成' : '标记任务为已完成',
             disabled: !canEdit,
             action: () => runBlockCommand((editor) => editor.toggleTaskListItem(contextMenu.blockId))
+          },
+          {
+            label: '转为普通列表',
+            disabled: !canEdit,
+            action: () => runBlockCommand((editor) => editor.convertTaskListItemToList(contextMenu.blockId))
           }
         ] : []),
         ...(isListItem ? [
+          ...(!isTaskList ? [
+            {
+              label: '转为待办列表',
+              disabled: !canEdit,
+              action: () => runBlockCommand((editor) => editor.convertListItemToTask(contextMenu.blockId))
+            },
+            {
+              label: '转为已完成待办',
+              disabled: !canEdit,
+              action: () => runBlockCommand((editor) => editor.convertListItemToTask(contextMenu.blockId, true))
+            }
+          ] : []),
           {
             label: '增加列表缩进',
             icon: '⇥',
