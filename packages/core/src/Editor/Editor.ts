@@ -1434,6 +1434,53 @@ export class Editor {
     return this.applyBlockRawCommand(blockId, nextRawText, rowStartOffset + 2)
   }
 
+  insertTableColumnAfter(blockId: string): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'table') return false
+
+    const table = block as TableBlock
+    const headers = [...table.headers, '']
+    const aligns = [...table.aligns, 'default' as const]
+    const rows = table.rows.map(row => {
+      const normalizedRow = row.slice(0, table.headers.length)
+      while (normalizedRow.length < table.headers.length) normalizedRow.push('')
+      return [...normalizedRow, '']
+    })
+    const nextRawText = this.buildTableRaw(headers, aligns, rows)
+    const firstCellOffset = Math.max(0, nextRawText.split('\n')[0].length - 2)
+
+    return this.applyBlockRawCommand(blockId, nextRawText, firstCellOffset)
+  }
+
+  deleteTableLastRow(blockId: string): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'table') return false
+
+    const table = block as TableBlock
+    if (table.rows.length === 0) return false
+
+    const rows = table.rows.slice(0, -1)
+    const nextRawText = this.buildTableRaw(table.headers, table.aligns, rows)
+
+    return this.applyBlockRawCommand(blockId, nextRawText, nextRawText.length)
+  }
+
+  deleteTableLastColumn(blockId: string): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'table') return false
+
+    const table = block as TableBlock
+    if (table.headers.length <= 1) return false
+
+    const headers = table.headers.slice(0, -1)
+    const aligns = table.aligns.slice(0, headers.length)
+    const rows = table.rows.map(row => row.slice(0, headers.length))
+    const nextRawText = this.buildTableRaw(headers, aligns, rows)
+    const firstCellOffset = Math.max(0, nextRawText.split('\n')[0].length - 2)
+
+    return this.applyBlockRawCommand(blockId, nextRawText, firstCellOffset)
+  }
+
   convertTextBlock(blockId: string, target: TextBlockConversionTarget): boolean {
     const block = this.doc.getBlock(blockId)
     if (!block) return false
@@ -1592,6 +1639,23 @@ export class Editor {
       return { rawText: '|  |  |\n| --- | --- |\n|  |  |', cursorRawOffset: 2 }
     }
     return null
+  }
+
+  private buildTableRaw(
+    headers: string[],
+    aligns: ('left' | 'center' | 'right' | 'default')[],
+    rows: string[][]
+  ): string {
+    const headerRow = `| ${headers.join(' | ')} |`
+    const separatorRow = `| ${headers.map((_, index) => {
+      const align = aligns[index] ?? 'default'
+      if (align === 'left') return ':---'
+      if (align === 'center') return ':---:'
+      if (align === 'right') return '---:'
+      return '---'
+    }).join(' | ')} |`
+    const dataRows = rows.map(row => `| ${headers.map((_, index) => row[index] ?? '').join(' | ')} |`)
+    return [headerRow, separatorRow, ...dataRows].join('\n')
   }
 
   /**
