@@ -59,5 +59,47 @@ test.describe('03.14 inline caret position matrix', () => {
         ).toBe(expected)
       }
     })
+
+    test(`3.14 ${inlineCase.name}: Backspace deletes the raw character before every caret`, async ({ page }) => {
+      const source = inlineCase.markdown
+
+      for (let offset = 1; offset <= source.length; offset += 1) {
+        await resetEditor(page, source)
+        const blockId = await blockIdAt(page, 0)
+        await placeCaret(page, blockId, offset)
+        await page.keyboard.press('Backspace')
+
+        const expected = `${source.slice(0, offset - 1)}${source.slice(offset)}`
+        expect(
+          await currentRawText(page, blockId),
+          `${inlineCase.name} Backspace at raw offset ${offset}`,
+        ).toBe(expected)
+        expect(
+          await blockLocator(page, blockId).textContent(),
+          `${inlineCase.name} expanded DOM after Backspace at raw offset ${offset}`,
+        ).toBe(expected)
+      }
+    })
+
+    test(`3.14 ${inlineCase.name}: Delete removes the raw character at every caret`, async ({ page }) => {
+      const source = inlineCase.markdown
+
+      for (let offset = 0; offset < source.length; offset += 1) {
+        await resetEditor(page, source)
+        const blockId = await blockIdAt(page, 0)
+        await placeCaret(page, blockId, offset)
+        await page.keyboard.press('Delete')
+
+        const expected = `${source.slice(0, offset)}${source.slice(offset + 1)}`
+        expect(
+          await currentRawText(page, blockId),
+          `${inlineCase.name} Delete at raw offset ${offset}`,
+        ).toBe(expected)
+        expect(
+          await blockLocator(page, blockId).textContent(),
+          `${inlineCase.name} expanded DOM after Delete at raw offset ${offset}`,
+        ).toBe(expected)
+      }
+    })
   }
 })
