@@ -880,12 +880,14 @@ export default function App() {
     if (contextMenu.kind === 'editor-block') {
       const canEdit = Boolean(editorRef.current);
       const canConvert = canEdit && isConvertibleTextBlock(contextMenu.blockType);
+      const isHeading = contextMenu.blockType === 'heading';
       const isListItem = contextMenu.blockType === 'list-item';
       const isBlockquote = contextMenu.blockType === 'blockquote';
       const isTaskList = contextMenu.blockType === 'list-item' && isTaskListRaw(contextMenu.raw);
       const isCheckedTask = isCheckedTaskRaw(contextMenu.raw);
       const canOutdentListItem = isListItem && /^\s+/.test(contextMenu.raw);
       const canDecreaseBlockquote = isBlockquote && /^>/.test(contextMenu.raw);
+      const headingLevel = isHeading ? (contextMenu.raw.match(/^#{1,6}(?=\s)/)?.[0].length ?? 0) : 0;
       const codeLanguage = contextMenu.blockType === 'code-block'
         ? getCodeBlockLanguageFromRaw(contextMenu.raw)
         : '';
@@ -1019,6 +1021,20 @@ export default function App() {
             icon: '<',
             disabled: !canEdit || !canDecreaseBlockquote,
             action: () => runBlockCommand((editor) => editor.decreaseBlockquoteLevel(contextMenu.blockId))
+          }
+        ] : []),
+        ...(isHeading ? [
+          {
+            label: '提升标题层级',
+            icon: 'H↑',
+            disabled: !canEdit || headingLevel <= 1,
+            action: () => runBlockCommand((editor) => editor.promoteHeadingLevel(contextMenu.blockId))
+          },
+          {
+            label: '降低标题层级',
+            icon: 'H↓',
+            disabled: !canEdit || headingLevel >= 6,
+            action: () => runBlockCommand((editor) => editor.demoteHeadingLevel(contextMenu.blockId))
           }
         ] : []),
         ...(contextMenu.blockType === 'code-block' ? [

@@ -189,6 +189,8 @@ describe('Editor block commands', () => {
     expect(editor.outdentListItem(id)).toBe(false)
     expect(editor.increaseBlockquoteLevel(id)).toBe(false)
     expect(editor.decreaseBlockquoteLevel(id)).toBe(false)
+    expect(editor.promoteHeadingLevel(id)).toBe(false)
+    expect(editor.demoteHeadingLevel(id)).toBe(false)
     expect(editor.setCodeBlockLanguage(id, 'ts')).toBe(false)
     expect(editor.insertTableRowAfter(id)).toBe(false)
     expect(editor.insertTableColumnAfter(id)).toBe(false)
@@ -218,6 +220,40 @@ describe('Editor block commands', () => {
     expect(editor.outdentListItem(item.id)).toBe(false)
     expect(snapshot(editor)).toMatchObject([
       { type: 'list-item', raw: '7. numbered' },
+    ])
+
+    editor.destroy()
+  })
+
+  test('promotes and demotes heading levels within h1-h6 bounds', () => {
+    const editor = createEditor('### title')
+    const heading = snapshot(editor)[0]
+
+    expect(editor.promoteHeadingLevel(heading.id)).toBe(true)
+    expect(snapshot(editor)).toMatchObject([
+      { type: 'heading', raw: '## title' },
+    ])
+
+    expect(editor.promoteHeadingLevel(heading.id)).toBe(true)
+    expect(snapshot(editor)).toMatchObject([
+      { type: 'heading', raw: '# title' },
+    ])
+
+    expect(editor.promoteHeadingLevel(heading.id)).toBe(false)
+    expect(snapshot(editor)).toMatchObject([
+      { type: 'heading', raw: '# title' },
+    ])
+
+    for (let i = 0; i < 5; i += 1) {
+      expect(editor.demoteHeadingLevel(heading.id)).toBe(true)
+    }
+    expect(snapshot(editor)).toMatchObject([
+      { type: 'heading', raw: '###### title' },
+    ])
+
+    expect(editor.demoteHeadingLevel(heading.id)).toBe(false)
+    expect(snapshot(editor)).toMatchObject([
+      { type: 'heading', raw: '###### title' },
     ])
 
     editor.destroy()
