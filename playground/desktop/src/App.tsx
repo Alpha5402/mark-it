@@ -30,6 +30,7 @@ type ContextMenuPayload = ContextMenuState extends infer Menu
 type ContextMenuItem = {
   label: string;
   hint?: string;
+  shortcut?: ShortcutId;
   icon?: string;
   disabled?: boolean;
   danger?: boolean;
@@ -38,6 +39,16 @@ type ContextMenuItem = {
   action?: () => void | Promise<void>;
 };
 type TableAlignment = 'left' | 'center' | 'right' | 'default';
+type ShortcutId =
+  | 'new-note'
+  | 'new-folder'
+  | 'open-file'
+  | 'close-tab'
+  | 'close-other-tabs'
+  | 'next-tab'
+  | 'previous-tab'
+  | 'open-settings'
+  | FormatShortcutAction;
 
 const minSidebarWidth = 216;
 const maxSidebarWidth = 380;
@@ -53,6 +64,62 @@ const inactiveFormatShortcutState: FormatShortcutState = {
   code: 'inactive',
   link: 'inactive'
 };
+
+const shortcutGroups: Array<{
+  title: string;
+  shortcuts: Array<{ id: ShortcutId; label: string; keys: string[] }>;
+}> = [
+  {
+    title: '文件',
+    shortcuts: [
+      { id: 'new-note', label: '新建笔记', keys: ['Mod', 'N'] },
+      { id: 'new-folder', label: '新建文件夹', keys: ['Mod', 'Shift', 'N'] },
+      { id: 'open-file', label: '打开文件', keys: ['Mod', 'O'] }
+    ]
+  },
+  {
+    title: '标签页',
+    shortcuts: [
+      { id: 'close-tab', label: '关闭当前标签', keys: ['Mod', 'W'] },
+      { id: 'close-other-tabs', label: '关闭其他标签', keys: ['Mod', 'Option', 'W'] },
+      { id: 'next-tab', label: '切换到下一个标签', keys: ['Mod', 'Tab'] },
+      { id: 'previous-tab', label: '切换到上一个标签', keys: ['Mod', 'Shift', 'Tab'] }
+    ]
+  },
+  {
+    title: '编辑',
+    shortcuts: [
+      { id: 'bold', label: '加粗', keys: ['Mod', 'B'] },
+      { id: 'italic', label: '斜体', keys: ['Mod', 'I'] },
+      { id: 'strikethrough', label: '删除线', keys: ['Mod', 'D'] },
+      { id: 'highlight', label: '高亮', keys: ['Mod', 'Shift', 'H'] },
+      { id: 'code', label: '行内代码', keys: ['Mod', 'E'] },
+      { id: 'link', label: '插入链接', keys: ['Mod', 'K'] }
+    ]
+  },
+  {
+    title: '应用',
+    shortcuts: [
+      { id: 'open-settings', label: '打开设置', keys: ['Mod', ','] }
+    ]
+  }
+];
+
+const shortcutMap = new Map<ShortcutId, { label: string; keys: string[] }>(
+  shortcutGroups.flatMap(group => group.shortcuts.map(shortcut => [shortcut.id, shortcut] as const))
+);
+
+function shortcutLabel(id: ShortcutId, platform: string) {
+  const shortcut = shortcutMap.get(id);
+  if (!shortcut) return '';
+  return shortcut.keys
+    .map(key => {
+      if (key === 'Mod') return platform === 'darwin' ? 'Cmd' : 'Ctrl';
+      if (key === 'Option') return platform === 'darwin' ? 'Opt' : 'Alt';
+      return key;
+    })
+    .join('+');
+}
 
 function getStats(markdown: string) {
   const compact = markdown.replace(/\s/g, '');
@@ -279,10 +346,12 @@ export default function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [platform, setPlatform] = useState('darwin');
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [hasFormatSelection, setHasFormatSelection] = useState(false);
   const [isShortcutHintExpanded, setIsShortcutHintExpanded] = useState(false);
   const [formatShortcutState, setFormatShortcutState] = useState<FormatShortcutState>(inactiveFormatShortcutState);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [openSubmenuKey, setOpenSubmenuKey] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -290,6 +359,7 @@ export default function App() {
   const latestMarkdownRef = useRef('');
   const hasRestoredSessionRef = useRef(false);
   const isCommandKeyDownRef = useRef(false);
+  const submenuCloseTimerRef = useRef<number | null>(null);
   const refreshFormatSelectionRef = useRef<() => void>(() => undefined);
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? null,
@@ -306,7 +376,22 @@ export default function App() {
 
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
+    setOpenSubmenuKey(null);
   }, []);
+
+  const cancelSubmenuClose = useCallback(() => {
+    if (submenuCloseTimerRef.current === null) return;
+    window.clearTimeout(submenuCloseTimerRef.current);
+    submenuCloseTimerRef.current = null;
+  }, []);
+
+  const scheduleSubmenuClose = useCallback(() => {
+    cancelSubmenuClose();
+    submenuCloseTimerRef.current = window.setTimeout(() => {
+      setOpenSubmenuKey(null);
+      submenuCloseTimerRef.current = null;
+    }, 220);
+  }, [cancelSubmenuClose]);
 
   const openContextMenu = useCallback((
     event: React.MouseEvent,
@@ -363,6 +448,7 @@ export default function App() {
 
   useEffect(() => {
     if (!contextMenu) return;
+    setOpenSubmenuKey(null);
 
     const close = () => closeContextMenu();
     const closeWhenOutsideMenu = (event: PointerEvent | MouseEvent) => {
@@ -388,6 +474,12 @@ export default function App() {
       window.removeEventListener('keydown', onKeyDown);
     };
   }, [closeContextMenu, contextMenu]);
+
+  useEffect(() => () => {
+    if (submenuCloseTimerRef.current !== null) {
+      window.clearTimeout(submenuCloseTimerRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     if (!window.markItWindow) return;
@@ -743,8 +835,60 @@ export default function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       const commandPressed = event.metaKey || event.ctrlKey;
       if (!commandPressed) return;
+      const key = event.key.toLowerCase();
 
-      if (event.key.toLowerCase() === 'w') {
+      if (key === ',') {
+        event.preventDefault();
+        setIsSettingsOpen(true);
+        return;
+      }
+
+      if (key === 'o' && !event.shiftKey) {
+        event.preventDefault();
+        if (window.markItWorkspace) {
+          void window.markItWorkspace.openFile().then((file) => {
+            if (file) openOrFocusFile(file);
+          });
+        } else {
+          fileInputRef.current?.click();
+        }
+        return;
+      }
+
+      if (key === 'n' && workspaceTree) {
+        event.preventDefault();
+        if (!window.markItWorkspace) return;
+
+        if (event.shiftKey) {
+          void window.markItWorkspace.createDirectory(workspaceTree.path).then((result) => {
+            if (result.workspace) {
+              applyWorkspace(result.workspace);
+              setExpandedPaths((current) => {
+                const next = new Set(current);
+                next.add(workspaceTree.path);
+                if (result.path) next.add(result.path);
+                return next;
+              });
+            }
+          });
+          return;
+        }
+
+        void window.markItWorkspace.createMarkdownFile(workspaceTree.path).then((result) => {
+          if (result.workspace) applyWorkspace(result.workspace);
+          if (result.file) openOrFocusFile(result.file);
+        });
+        return;
+      }
+
+      if (key === 'w' && event.altKey) {
+        if (!activeTabId) return;
+        event.preventDefault();
+        closeOtherTabs(activeTabId);
+        return;
+      }
+
+      if (key === 'w') {
         if (!activeTabId) return;
         event.preventDefault();
         closeTab(activeTabId);
@@ -771,7 +915,7 @@ export default function App() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeTabId, tabs]);
+  }, [activeTabId, tabs, workspaceTree]);
 
   const openMarkdownFile = async () => {
     if (window.markItWorkspace) {
@@ -877,8 +1021,8 @@ export default function App() {
       return [
         { label: contextMenu.node.name, hint: '文件夹', disabled: true },
         { label: '', separator: true },
-        { label: '新建笔记', hint: '.md', action: () => createMarkdownFileAt(contextMenu.node) },
-        { label: '新建文件夹', action: () => createDirectoryAt(contextMenu.node) },
+        { label: '新建笔记', hint: '.md', shortcut: 'new-note', action: () => createMarkdownFileAt(contextMenu.node) },
+        { label: '新建文件夹', shortcut: 'new-folder', action: () => createDirectoryAt(contextMenu.node) },
         { label: '', separator: true },
         {
           label: expanded ? '收起文件夹' : '展开文件夹',
@@ -894,8 +1038,8 @@ export default function App() {
       return [
         { label: contextMenu.node.name, hint: 'Markdown', disabled: true },
         { label: '', separator: true },
-        { label: '打开', action: () => selectTreeFile(contextMenu.node) },
-        { label: '新建同级笔记', hint: '.md', action: () => createMarkdownFileAt(contextMenu.node) },
+        { label: '打开', shortcut: 'open-file', action: () => selectTreeFile(contextMenu.node) },
+        { label: '新建同级笔记', hint: '.md', shortcut: 'new-note', action: () => createMarkdownFileAt(contextMenu.node) },
         { label: '', separator: true },
         { label: '复制路径', action: () => copyText(contextMenu.node.path) },
         { label: '在 Finder 中显示', action: () => revealPath(contextMenu.node.path) }
@@ -908,13 +1052,20 @@ export default function App() {
       return [
         { label: target.name, hint: target.isDirty ? '未保存' : '已保存', disabled: true },
         { label: '切换到此标签', action: () => activateTab(target.id) },
-        { label: '关闭标签', action: () => closeTab(target.id) },
+        { label: '关闭标签', shortcut: 'close-tab', action: () => closeTab(target.id) },
         {
           label: '关闭其他标签',
+          shortcut: 'close-other-tabs',
           disabled: tabs.length <= 1,
           action: () => closeOtherTabs(target.id)
         },
-        { label: '复制文件路径', disabled: !target.path, action: () => target.path && copyText(target.path) }
+        {
+          label: '复制文件路径',
+          disabled: !target.path,
+          action: () => {
+            if (target.path) void copyText(target.path);
+          }
+        }
       ];
     }
 
@@ -1428,13 +1579,24 @@ export default function App() {
       }
 
       const hasChildren = Boolean(item.children?.length);
+      const itemKey = `${depth}-${index}-${item.label}`;
+      const submenuOpen = hasChildren && openSubmenuKey === itemKey;
+      const classNames = [
+        item.disabled ? 'disabled' : '',
+        item.danger ? 'danger' : '',
+        hasChildren ? 'has-submenu' : '',
+        submenuOpen ? 'submenu-open' : '',
+        item.icon ? 'has-icon' : '',
+        item.hint || item.shortcut || hasChildren ? 'has-trailing' : ''
+      ].filter(Boolean).join(' ');
+      const shortcut = item.shortcut ? shortcutLabel(item.shortcut, platform) : '';
       const button = (
         <button
           key={`${item.label}-${depth}-${index}`}
           type="button"
           role="menuitem"
           aria-haspopup={hasChildren ? 'menu' : undefined}
-          className={`${item.disabled ? 'disabled' : ''} ${item.danger ? 'danger' : ''} ${hasChildren ? 'has-submenu' : ''}`}
+          className={classNames}
           disabled={item.disabled}
           onClick={async (event) => {
             if (hasChildren) {
@@ -1445,18 +1607,41 @@ export default function App() {
             closeContextMenu();
           }}
         >
-          <span className="context-menu-icon" aria-hidden="true">{item.icon ?? ''}</span>
+          {item.icon && <span className="context-menu-icon" aria-hidden="true">{item.icon}</span>}
           <span>{item.label}</span>
-          {hasChildren ? <small>›</small> : item.hint && <small>{item.hint}</small>}
+          {hasChildren ? (
+            <small>›</small>
+          ) : (item.hint || shortcut) && (
+            <span className="context-menu-trailing">
+              {item.hint && <small>{item.hint}</small>}
+              {shortcut && <kbd>{shortcut}</kbd>}
+            </span>
+          )}
         </button>
       );
 
       if (!hasChildren) return button;
 
       return (
-        <div key={`${item.label}-${depth}-${index}`} className="context-menu-submenu">
+        <div
+          key={`${item.label}-${depth}-${index}`}
+          className={`context-menu-submenu ${submenuOpen ? 'open' : ''}`}
+          onMouseEnter={() => {
+            cancelSubmenuClose();
+            setOpenSubmenuKey(itemKey);
+          }}
+          onMouseLeave={scheduleSubmenuClose}
+        >
           {button}
-          <div className="context-menu context-menu-nested" role="menu">
+          <div
+            className="context-menu context-menu-nested"
+            role="menu"
+            onMouseEnter={() => {
+              cancelSubmenuClose();
+              setOpenSubmenuKey(itemKey);
+            }}
+            onMouseLeave={scheduleSubmenuClose}
+          >
             {item.children!.map((child, childIndex) => renderMenuItem(child, childIndex, depth + 1))}
           </div>
         </div>
@@ -1472,6 +1657,52 @@ export default function App() {
         onContextMenu={(event) => event.preventDefault()}
       >
         {contextMenuItems.map((item, index) => renderMenuItem(item, index))}
+      </div>
+    );
+  };
+
+  const renderSettingsPanel = () => {
+    if (!isSettingsOpen) return null;
+
+    return (
+      <div className="settings-backdrop" role="presentation" onMouseDown={() => setIsSettingsOpen(false)}>
+        <section
+          className="settings-panel"
+          role="dialog"
+          aria-modal="true"
+          aria-label="设置"
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <header className="settings-header">
+            <div>
+              <span>设置</span>
+              <small>快捷键配置</small>
+            </div>
+            <button
+              type="button"
+              aria-label="关闭设置"
+              onClick={() => setIsSettingsOpen(false)}
+            >
+              ×
+            </button>
+          </header>
+          <div className="settings-tabs" role="tablist" aria-label="设置分类">
+            <button type="button" className="active" role="tab" aria-selected="true">快捷键</button>
+          </div>
+          <div className="shortcut-settings-list">
+            {shortcutGroups.map((group) => (
+              <section key={group.title} className="shortcut-settings-group">
+                <h3>{group.title}</h3>
+                {group.shortcuts.map((shortcut) => (
+                  <div key={shortcut.id} className="shortcut-settings-row">
+                    <span>{shortcut.label}</span>
+                    <kbd>{shortcutLabel(shortcut.id, platform)}</kbd>
+                  </div>
+                ))}
+              </section>
+            ))}
+          </div>
+        </section>
       </div>
     );
   };
@@ -1570,15 +1801,6 @@ export default function App() {
               >
                 ×
               </button>
-              <button
-                type="button"
-                className="tab-chip-more"
-                aria-label={`关闭其他标签（保留 ${tab.name}）`}
-                title="关闭其他标签"
-                onClick={() => closeOtherTabs(tab.id)}
-              >
-                ⋯
-              </button>
             </div>
           ))}
         </div>
@@ -1589,7 +1811,7 @@ export default function App() {
           <img src={logoUrl} alt="" className="brand-logo" />
           <div className="brand-copy">
             <div className="brand-name">Mark It</div>
-            <div className="brand-meta">{workspaceName || 'Desktop writer'}</div>
+            <div className="brand-meta">{workspaceName || (platform === 'web' ? 'Web writer' : 'Desktop writer')}</div>
           </div>
         </div>
 
@@ -1618,6 +1840,7 @@ export default function App() {
             className="rail-button"
             title="设置"
             aria-label="设置"
+            onClick={() => setIsSettingsOpen(true)}
           >
             <SettingsIcon />
           </button>
@@ -1734,6 +1957,7 @@ export default function App() {
         )}
       </section>
       {renderContextMenu()}
+      {renderSettingsPanel()}
     </main>
   );
 }
