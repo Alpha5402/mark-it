@@ -187,6 +187,8 @@ describe('Editor block commands', () => {
     expect(editor.toggleTaskListItem(id)).toBe(false)
     expect(editor.indentListItem(id)).toBe(false)
     expect(editor.outdentListItem(id)).toBe(false)
+    expect(editor.increaseBlockquoteLevel(id)).toBe(false)
+    expect(editor.decreaseBlockquoteLevel(id)).toBe(false)
     expect(editor.setCodeBlockLanguage(id, 'ts')).toBe(false)
     expect(editor.insertTableRowAfter(id)).toBe(false)
     expect(editor.insertTableColumnAfter(id)).toBe(false)
@@ -217,6 +219,31 @@ describe('Editor block commands', () => {
     expect(snapshot(editor)).toMatchObject([
       { type: 'list-item', raw: '7. numbered' },
     ])
+
+    editor.destroy()
+  })
+
+  test('increases and decreases blockquote depth through markdown markers', () => {
+    const editor = createEditor('> quoted **text**')
+    const quote = snapshot(editor)[0]
+
+    expect(editor.increaseBlockquoteLevel(quote.id)).toBe(true)
+    expect(snapshot(editor)).toMatchObject([
+      { type: 'blockquote', raw: '>> quoted **text**' },
+    ])
+
+    expect(editor.decreaseBlockquoteLevel(quote.id)).toBe(true)
+    expect(snapshot(editor)).toMatchObject([
+      { type: 'blockquote', raw: '> quoted **text**' },
+    ])
+
+    expect(editor.decreaseBlockquoteLevel(quote.id)).toBe(true)
+    expect(snapshot(editor)).toMatchObject([
+      { type: 'paragraph', raw: 'quoted **text**' },
+    ])
+
+    expect(editor.increaseBlockquoteLevel(quote.id)).toBe(false)
+    expect(editor.decreaseBlockquoteLevel(quote.id)).toBe(false)
 
     editor.destroy()
   })

@@ -1442,6 +1442,25 @@ export class Editor {
     return this.applyBlockRawCommand(blockId, nextRawText, Math.max(0, this.doc.prefixOffset(blockId) - spacesToRemove))
   }
 
+  increaseBlockquoteLevel(blockId: string): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'blockquote') return false
+
+    const rawText = this.doc.getRawText(blockId)
+    return this.applyBlockRawCommand(blockId, `>${rawText}`, this.doc.prefixOffset(blockId) + 1)
+  }
+
+  decreaseBlockquoteLevel(blockId: string): boolean {
+    const block = this.doc.getBlock(blockId)
+    if (!block || block.type !== 'blockquote') return false
+
+    const rawText = this.doc.getRawText(blockId)
+    const nextRawText = rawText.replace(/^>\s?/, '')
+    if (nextRawText === rawText) return false
+
+    return this.applyBlockRawCommand(blockId, nextRawText, Math.max(0, this.doc.prefixOffset(blockId) - 1))
+  }
+
   setCodeBlockLanguage(blockId: string, language: string): boolean {
     const block = this.doc.getBlock(blockId)
     if (!block || block.type !== 'code-block') return false

@@ -376,6 +376,15 @@ export class DocumentController {
       }
     }
 
+    if (newBlock.type === 'blockquote' && block.type === 'blockquote') {
+      const newQuote = newBlock as BlockquoteBlock
+      const oldQuote = block as BlockquoteBlock
+      if (newQuote.quoteDepth !== oldQuote.quoteDepth) {
+        this.blocks.set(blockId, newBlock)
+        return { kind: 'block-transform', from: block, to: newBlock }
+      }
+    }
+
     if (newBlock.type === 'list-item' && block.type === 'list-item') {
       const oldList = block as ListItemBlock
       const newList = newBlock as ListItemBlock
