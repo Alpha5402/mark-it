@@ -163,7 +163,8 @@ export const renderBlock = (block: BlockModel, expanded: boolean = false): Docum
         if (style.ordered) {
           prefix.textContent = style.order
         } else if ('task' in style && style.task) {
-          prefix.textContent = '- [' + (style.checked ? 'x' : ' ') + ']' + (style.markerSpacing ?? ' ')
+          const check = style.checked ? (style.checkedMarker ?? 'x') : ' '
+          prefix.textContent = '- [' + check + ']' + (style.markerSpacing ?? ' ')
         } else {
           prefix.textContent = '- '
         }

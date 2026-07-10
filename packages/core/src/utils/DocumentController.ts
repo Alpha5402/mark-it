@@ -96,7 +96,8 @@ export class DocumentController {
       if (listItem.style.ordered) {
         raw += listItem.style.order
       } else if ('task' in listItem.style && listItem.style.task) {
-        raw += '- [' + (listItem.style.checked ? 'x' : ' ') + ']' + (listItem.style.markerSpacing ?? ' ')
+        const check = listItem.style.checked ? (listItem.style.checkedMarker ?? 'x') : ' '
+        raw += '- [' + check + ']' + (listItem.style.markerSpacing ?? ' ')
       } else {
         raw += '- '
       }

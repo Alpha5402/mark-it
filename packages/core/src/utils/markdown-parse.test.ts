@@ -57,8 +57,8 @@ describe('parseLine', () => {
     const checked = parseLine(tokenizeByLine('- [x] done')) as any
 
     expect(unchecked.type).toBe('list-item')
-    expect(unchecked.style).toEqual({ ordered: false, task: true, checked: false, markerSpacing: ' ' })
-    expect(checked.style).toEqual({ ordered: false, task: true, checked: true, markerSpacing: ' ' })
+    expect(unchecked.style).toEqual({ ordered: false, task: true, checked: false, checkedMarker: undefined, markerSpacing: ' ' })
+    expect(checked.style).toEqual({ ordered: false, task: true, checked: true, checkedMarker: 'x', markerSpacing: ' ' })
   })
 
   test('parses code block language, fence, content, and empty content count', () => {

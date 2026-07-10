@@ -84,6 +84,7 @@ export interface ListItemBlock extends BlockModel {
     ordered: false
     task: true
     checked: boolean
+    checkedMarker?: 'x' | 'X'
     markerSpacing?: string
   }
 }

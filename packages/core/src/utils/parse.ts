@@ -540,6 +540,7 @@ export function parseLine(line: RawLine): BlockModel {
     const taskMatch = afterMarker.match(/^\[([ xX])\](\s?)/)
     if (taskMatch) {
       const checked = taskMatch[1] !== ' '
+      const checkedMarker = checked ? taskMatch[1] as 'x' | 'X' : undefined
       const content = afterMarker.slice(taskMatch[0].length)
       return {
         id: line.id,
@@ -550,6 +551,7 @@ export function parseLine(line: RawLine): BlockModel {
           ordered: false,
           task: true,
           checked,
+          checkedMarker,
           markerSpacing: taskMatch[2]
         }
       } as ListItemBlock

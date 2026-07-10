@@ -52,6 +52,9 @@ describe('DocumentController raw round-trip', () => {
 
     const compactTask = new DocumentController('- [x]done')
     expect(snapshot(compactTask).map(b => b.raw)).toEqual(['- [x]done'])
+
+    const uppercaseTask = new DocumentController('- [X] DONE')
+    expect(snapshot(uppercaseTask).map(b => b.raw)).toEqual(['- [X] DONE'])
   })
 
   test('round-trips code, math, and table blocks exactly', () => {
